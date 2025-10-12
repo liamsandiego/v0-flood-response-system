@@ -9,6 +9,7 @@ import { FloodMap } from "@/components/flood-map"
 import { AlertHistory } from "@/components/alert-history"
 import { AlertControls } from "@/components/alert-controls"
 import { SensorGraphs } from "@/components/sensor-graphs"
+import { EvacuationTips } from "@/components/evacuation-tips"
 import { Droplets, CloudRain, Clock, Radio, LogOut, User } from "lucide-react"
 import type { SensorData, AlertLevel } from "@/lib/types"
 import type { UserRole } from "@/components/auth-provider"
@@ -53,25 +54,29 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
   ])
 
   const [overallStatus, setOverallStatus] = useState<AlertLevel>("warning")
+  const [updatedSensors, setUpdatedSensors] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    // Simulate real-time sensor updates
     const interval = setInterval(() => {
-      setSensors((prev) =>
-        prev.map((sensor) => ({
+      setSensors((prev) => {
+        const updated = prev.map((sensor) => ({
           ...sensor,
           waterLevel: Math.max(0, sensor.waterLevel + (Math.random() - 0.5) * 0.1),
           rainfall: Math.max(0, sensor.rainfall + (Math.random() - 0.5) * 2),
           lastUpdate: new Date(),
-        })),
-      )
+        }))
+
+        setUpdatedSensors(new Set(updated.map((s) => s.id)))
+        setTimeout(() => setUpdatedSensors(new Set()), 1000)
+
+        return updated
+      })
     }, 5000)
 
     return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
-    // Update overall status based on sensors
     const hasCritical = sensors.some((s) => s.waterLevel > 1.0)
     const hasWarning = sensors.some((s) => s.waterLevel > 0.7)
 
@@ -143,7 +148,12 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
         {/* Real-time Stats */}
         <div className="grid gap-4 md:grid-cols-3">
           {sensors.map((sensor) => (
-            <Card key={sensor.id}>
+            <Card
+              key={sensor.id}
+              className={`transition-all duration-500 ${
+                updatedSensors.has(sensor.id) ? "ring-2 ring-primary shadow-lg scale-[1.02]" : ""
+              }`}
+            >
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-medium">{sensor.name}</CardTitle>
@@ -174,12 +184,13 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
 
         {/* Main Content Tabs */}
         <Tabs defaultValue="map" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="map">Community Map</TabsTrigger>
-            <TabsTrigger value="graphs">Data Graphs</TabsTrigger>
-            <TabsTrigger value="history">Alert History</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-5">
+            <TabsTrigger value="map">Map</TabsTrigger>
+            <TabsTrigger value="graphs">Graphs</TabsTrigger>
+            <TabsTrigger value="evacuation">Safety</TabsTrigger>
+            <TabsTrigger value="history">History</TabsTrigger>
             <TabsTrigger value="controls" disabled={user.role === "viewer"}>
-              Alert Controls
+              Controls
             </TabsTrigger>
           </TabsList>
 
@@ -199,6 +210,10 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
             <SensorGraphs sensors={sensors} />
           </TabsContent>
 
+          <TabsContent value="evacuation">
+            <EvacuationTips />
+          </TabsContent>
+
           <TabsContent value="history">
             <AlertHistory sensors={sensors} />
           </TabsContent>
@@ -211,7 +226,7 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
                 </CardContent>
               </Card>
             ) : (
-              <AlertControls currentStatus={overallStatus} userRole={user.role} />
+              <AlertControls currentStatus={overallStatus} userRole={user.role} sensors={sensors} />
             )}
           </TabsContent>
         </Tabs>

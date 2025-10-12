@@ -9,10 +9,12 @@ import { useToast } from "@/hooks/use-toast"
 import { MessageSquare, Radio, Share2, Send, AlertTriangle, CheckCircle, Bell, Loader2 } from "lucide-react"
 import type { AlertLevel } from "@/lib/types"
 import type { UserRole } from "@/components/auth-provider"
+import type { SensorData } from "@/lib/types"
 
 interface AlertControlsProps {
   currentStatus: AlertLevel
   userRole: UserRole
+  sensors: SensorData[]
 }
 
 const QUICK_ALERTS = [
@@ -39,7 +41,7 @@ const QUICK_ALERTS = [
   },
 ]
 
-export function AlertControls({ currentStatus, userRole }: AlertControlsProps) {
+export function AlertControls({ currentStatus, userRole, sensors }: AlertControlsProps) {
   const [message, setMessage] = useState("")
   const [lastBroadcast, setLastBroadcast] = useState<string>("")
   const [broadcastHistory, setBroadcastHistory] = useState<Array<{ time: string; message: string; channels: string }>>(
@@ -65,9 +67,20 @@ export function AlertControls({ currentStatus, userRole }: AlertControlsProps) {
     const timestamp = new Date().toLocaleTimeString()
     const channels = "SMS, Speaker, Social Media"
 
+    const criticalSensors = sensors.filter((s) => s.status === "critical")
+    const warningSensors = sensors.filter((s) => s.status === "warning")
+
+    let sensorInfo = ""
+    if (criticalSensors.length > 0) {
+      sensorInfo = `\n🔴 Critical: ${criticalSensors.map((s) => s.name).join(", ")}`
+    }
+    if (warningSensors.length > 0) {
+      sensorInfo += `\n🟡 Warning: ${warningSensors.map((s) => s.name).join(", ")}`
+    }
+
     toast({
       title: "🚀 Initiating Broadcast",
-      description: "Preparing to send alert through all channels...",
+      description: `Preparing to send alert through all channels...${sensorInfo}`,
     })
 
     await new Promise((resolve) => setTimeout(resolve, 1500))
@@ -247,7 +260,7 @@ export function AlertControls({ currentStatus, userRole }: AlertControlsProps) {
           <CardDescription>Use pre-defined messages for common emergency scenarios</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-3">
+          <div className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-3">
             {QUICK_ALERTS.map((alert) => {
               const Icon = alert.icon
               return (
@@ -255,11 +268,11 @@ export function AlertControls({ currentStatus, userRole }: AlertControlsProps) {
                   key={alert.id}
                   onClick={() => sendQuickAlert(alert)}
                   variant={alert.variant}
-                  className="h-auto flex-col items-start gap-2 p-4 whitespace-normal text-left"
+                  className="h-auto min-h-[100px] flex-col items-start gap-2 p-5 whitespace-normal text-left touch-manipulation"
                 >
                   <div className="flex items-center gap-2 w-full">
                     <Icon className="h-5 w-5 flex-shrink-0" />
-                    <span className="font-semibold">{alert.title}</span>
+                    <span className="font-semibold text-base">{alert.title}</span>
                   </div>
                   <span className="text-xs opacity-90 w-full">{alert.message}</span>
                 </Button>
@@ -283,18 +296,23 @@ export function AlertControls({ currentStatus, userRole }: AlertControlsProps) {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               rows={4}
+              className="text-base"
             />
           </div>
           <div className="grid gap-2">
-            <Button onClick={broadcastAll} className="w-full" disabled={isBroadcasting}>
+            <Button
+              onClick={broadcastAll}
+              className="w-full h-12 text-base touch-manipulation"
+              disabled={isBroadcasting}
+            >
               {isBroadcasting ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                   Broadcasting...
                 </>
               ) : (
                 <>
-                  <Send className="mr-2 h-4 w-4" />
+                  <Send className="mr-2 h-5 w-5" />
                   Broadcast to All Channels
                 </>
               )}
@@ -314,17 +332,17 @@ export function AlertControls({ currentStatus, userRole }: AlertControlsProps) {
           <Button
             onClick={sendSMSAlert}
             variant="outline"
-            className="w-full justify-start bg-transparent"
+            className="w-full h-12 justify-start bg-transparent text-base touch-manipulation"
             disabled={!canUseQuickActions || isSendingSMS}
           >
             {isSendingSMS ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 Sending SMS...
               </>
             ) : (
               <>
-                <MessageSquare className="mr-2 h-4 w-4" />
+                <MessageSquare className="mr-2 h-5 w-5" />
                 Send SMS Alert
               </>
             )}
@@ -332,17 +350,17 @@ export function AlertControls({ currentStatus, userRole }: AlertControlsProps) {
           <Button
             onClick={activateSpeakerSystem}
             variant="outline"
-            className="w-full justify-start bg-transparent"
+            className="w-full h-12 justify-start bg-transparent text-base touch-manipulation"
             disabled={!canUseQuickActions || isSendingSpeaker}
           >
             {isSendingSpeaker ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 Activating Speakers...
               </>
             ) : (
               <>
-                <Radio className="mr-2 h-4 w-4" />
+                <Radio className="mr-2 h-5 w-5" />
                 Activate Speaker System
               </>
             )}
@@ -350,17 +368,17 @@ export function AlertControls({ currentStatus, userRole }: AlertControlsProps) {
           <Button
             onClick={postToSocialMedia}
             variant="outline"
-            className="w-full justify-start bg-transparent"
+            className="w-full h-12 justify-start bg-transparent text-base touch-manipulation"
             disabled={!canUseQuickActions || isSendingSocial}
           >
             {isSendingSocial ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 Posting...
               </>
             ) : (
               <>
-                <Share2 className="mr-2 h-4 w-4" />
+                <Share2 className="mr-2 h-5 w-5" />
                 Post to Social Media
               </>
             )}
