@@ -10,7 +10,8 @@ import { AlertHistory } from "@/components/alert-history"
 import { AlertControls } from "@/components/alert-controls"
 import { SensorGraphs } from "@/components/sensor-graphs"
 import { EvacuationTips } from "@/components/evacuation-tips"
-import { Droplets, CloudRain, Clock, Radio, LogOut, User } from "lucide-react"
+import { Droplets, CloudRain, Clock, Radio, LogOut, User, Moon, Sun } from "lucide-react"
+import { useTheme } from "@/components/theme-provider"
 import type { SensorData, AlertLevel } from "@/lib/types"
 import type { UserRole } from "@/components/auth-provider"
 
@@ -20,6 +21,8 @@ interface DashboardProps {
 }
 
 export function Dashboard({ user, onLogout }: DashboardProps) {
+  const { theme, toggleTheme } = useTheme()
+
   const [sensors, setSensors] = useState<SensorData[]>([
     {
       id: "sensor_01",
@@ -135,6 +138,9 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
               <span className="text-sm font-medium">{user.name}</span>
               <Badge className={getRoleBadge(user.role)}>{user.role.toUpperCase()}</Badge>
             </div>
+            <Button variant="outline" size="sm" onClick={toggleTheme}>
+              {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            </Button>
             <Button variant="outline" size="sm" onClick={onLogout}>
               <LogOut className="h-4 w-4 mr-2" />
               Logout

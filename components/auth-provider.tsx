@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 import { LoginScreen } from "@/components/login-screen"
 import { Dashboard } from "@/components/dashboard"
 
@@ -27,17 +27,36 @@ const mockUsers = {
   viewer: { password: "viewer123", role: "viewer" as UserRole, name: "Viewer User" },
 }
 
+const AUTH_STORAGE_KEY = "rapid_relay_auth"
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem(AUTH_STORAGE_KEY)
+    if (storedUser) {
+      try {
+        const parsedUser = JSON.parse(storedUser)
+        setUser(parsedUser)
+      } catch (error) {
+        console.error("Failed to parse stored user data:", error)
+        localStorage.removeItem(AUTH_STORAGE_KEY)
+      }
+    }
+    setIsLoading(false)
+  }, [])
 
   const login = (username: string, password: string): boolean => {
     const mockUser = mockUsers[username as keyof typeof mockUsers]
     if (mockUser && mockUser.password === password) {
-      setUser({
+      const userData = {
         username,
         role: mockUser.role,
         name: mockUser.name,
-      })
+      }
+      setUser(userData)
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(userData))
       return true
     }
     return false
@@ -45,6 +64,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setUser(null)
+    localStorage.removeItem(AUTH_STORAGE_KEY)
+  }
+
+  if (isLoading) {
+    return null
   }
 
   if (!user) {
