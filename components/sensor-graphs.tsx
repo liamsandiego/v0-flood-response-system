@@ -5,12 +5,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Line, LineChart, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import type { SensorData } from "@/lib/types"
+import { useTheme } from "@/components/theme-provider"
 
 interface SensorGraphsProps {
   sensors: SensorData[]
 }
 
 export function SensorGraphs({ sensors }: SensorGraphsProps) {
+  const { theme } = useTheme()
+  const dotColor = theme === "dark" ? "#ffffff" : "#000000"
+
   // Generate historical data for the last 2 hours
   const historicalData = useMemo(() => {
     const data = []
@@ -87,6 +91,8 @@ export function SensorGraphs({ sensors }: SensorGraphsProps) {
                   stroke="var(--color-sensor_01_water)"
                   name="Sensor 01"
                   strokeWidth={2}
+                  dot={{ fill: dotColor, r: 4 }}
+                  activeDot={{ r: 6 }}
                 />
                 <Line
                   type="monotone"
@@ -94,6 +100,8 @@ export function SensorGraphs({ sensors }: SensorGraphsProps) {
                   stroke="var(--color-sensor_02_water)"
                   name="Sensor 02"
                   strokeWidth={2}
+                  dot={{ fill: dotColor, r: 4 }}
+                  activeDot={{ r: 6 }}
                 />
                 <Line
                   type="monotone"
@@ -101,6 +109,8 @@ export function SensorGraphs({ sensors }: SensorGraphsProps) {
                   stroke="var(--color-sensor_03_water)"
                   name="Sensor 03"
                   strokeWidth={2}
+                  dot={{ fill: dotColor, r: 4 }}
+                  activeDot={{ r: 6 }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -128,6 +138,8 @@ export function SensorGraphs({ sensors }: SensorGraphsProps) {
                   stroke="var(--color-sensor_01_rain)"
                   name="Sensor 01"
                   strokeWidth={2}
+                  dot={{ fill: dotColor, r: 4 }}
+                  activeDot={{ r: 6 }}
                 />
                 <Line
                   type="monotone"
@@ -135,6 +147,8 @@ export function SensorGraphs({ sensors }: SensorGraphsProps) {
                   stroke="var(--color-sensor_02_rain)"
                   name="Sensor 02"
                   strokeWidth={2}
+                  dot={{ fill: dotColor, r: 4 }}
+                  activeDot={{ r: 6 }}
                 />
                 <Line
                   type="monotone"
@@ -142,6 +156,8 @@ export function SensorGraphs({ sensors }: SensorGraphsProps) {
                   stroke="var(--color-sensor_03_rain)"
                   name="Sensor 03"
                   strokeWidth={2}
+                  dot={{ fill: dotColor, r: 4 }}
+                  activeDot={{ r: 6 }}
                 />
               </LineChart>
             </ResponsiveContainer>
