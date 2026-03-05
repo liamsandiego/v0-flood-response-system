@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#2563eb"/>
+  <text x="256" y="200" font-family="system-ui, sans-serif" font-size="120" font-weight="bold" fill="white" text-anchor="middle">RR</text>
+  <text x="256" y="320" font-family="system-ui, sans-serif" font-size="48" fill="white" text-anchor="middle" opacity="0.9">Rapid</text>
+  <text x="256" y="380" font-family="system-ui, sans-serif" font-size="48" fill="white" text-anchor="middle" opacity="0.9">Relay</text>
+  <circle cx="256" cy="440" r="8" fill="#60a5fa" opacity="0.8"/>
+  <circle cx="230" cy="440" r="5" fill="#93c5fd" opacity="0.6"/>
+  <circle cx="282" cy="440" r="5" fill="#93c5fd" opacity="0.6"/>
+</svg>
