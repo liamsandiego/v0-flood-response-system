@@ -1,0 +1,30 @@
+# =============================================================================
+# RapidRelay – VS Code Multi-Root Workspace
+#
+# Open this file in VS Code:  File → Open Workspace from File…
+# Gives you both the Next.js frontend and FastAPI backend in one window.
+# =============================================================================
+{
+  "folders": [
+    {
+      "name": "Frontend (Next.js)",
+      "path": "./v0-flood-response-system"
+    },
+    {
+      "name": "Backend (FastAPI)",
+      "path": "./backend"
+    },
+    {
+      "name": "Prototype (Python)",
+      "path": "./Rapid-Relay-Pre-Prototype-main"
+    }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "python",
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/.next": true,
+      "**/node_modules": true
+    }
+  }
+}

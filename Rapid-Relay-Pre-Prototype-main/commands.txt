@@ -1,0 +1,28 @@
+python -m venv floodenv
+floodenv\Scripts\activate
+
+pip install numpy pandas scipy scikit-learn
+pip install pyserial matplotlib
+pip install pystac-client rasterio shapely
+
+pip freeze > requirements.txt
+
+git add .
+git commit -m "commit"
+git push -u origin main
+
+git add .
+git commit -m "new logs"
+git push -u origin main
+
+cd flood_preprototype
+floodenv\Scripts\activate
+pip install -r requirements.txt
+python main.py
+
+
+//Run if using different machine//
+python -m venv floodenv
+floodenv\Scripts\activate
+pip install -r requirements.txt
+python main.py
