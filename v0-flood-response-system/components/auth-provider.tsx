@@ -112,28 +112,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = useCallback(async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    // Try Supabase auth first
-    const email = username.includes("@") ? username : `${username}@rapidrelay.local`
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (!error) return { success: true }
+    // Try Supabase auth first (wrapped in try-catch to avoid lock errors)
+    try {
+      const email = username.includes("@") ? username : `${username}@rapidrelay.local`
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (!error) return { success: true }
+    } catch {
+      // Supabase auth unavailable — continue to demo fallback
+    }
 
-    // Fallback: demo/thesis credentials (works when Supabase Auth user doesn't exist)
-    if (
-      (username === "admin" && password === "admin123") ||
-      (username === "operator" && password === "operator123")
-    ) {
-      const role = username as UserRole
+    // Demo login — thesis project, no real user management needed
+    const accounts: Record<string, { password: string; role: UserRole; name: string }> = {
+      admin: { password: "admin123", role: "admin", name: "Admin User" },
+      operator: { password: "operator123", role: "operator", name: "Operator User" },
+    }
+    const acct = accounts[username]
+    if (acct && password === acct.password) {
       setUser({
         id: `demo-${username}`,
         email: `${username}@rapidrelay.local`,
         username,
-        role: role === "operator" ? "operator" : "admin",
-        name: username === "admin" ? "Admin User" : "Operator User",
+        role: acct.role,
+        name: acct.name,
       })
       return { success: true }
     }
 
-    return { success: false, error: error.message }
+    return { success: false, error: "Invalid username or password" }
   }, [])
 
   const logout = useCallback(async () => {

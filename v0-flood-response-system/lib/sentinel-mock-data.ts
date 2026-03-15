@@ -8,8 +8,7 @@
 // Backend endpoint: GET /api/eo/sentinel/flood-extents (list all dates)
 // =============================================================================
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || ""
 
 export interface FloodExtentRecord {
   /** Unique identifier matching Sentinel-1 scene naming */
@@ -52,25 +51,50 @@ export interface FloodExtentSummary {
 // Backend API fetchers
 // ---------------------------------------------------------------------------
 
-/** Fetch all available flood extent dates from backend (lightweight, no GeoJSON). */
+/** Fetch all available flood extent dates — tries Next.js API route first, then backend. */
 export async function fetchFloodExtentList(): Promise<FloodExtentSummary[]> {
-  const res = await fetch(`${BACKEND_URL}/api/eo/sentinel/flood-extents`)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+  // Try Next.js API route (works on Vercel)
+  try {
+    const res = await fetch("/api/eo/sentinel/flood-extents")
+    if (res.ok) return res.json()
+  } catch { /* fall through */ }
+
+  // Try Python backend (local dev)
+  if (BACKEND_URL) {
+    const res = await fetch(`${BACKEND_URL}/api/eo/sentinel/flood-extents`)
+    if (res.ok) return res.json()
+  }
+
+  throw new Error("No sentinel data source available")
 }
 
-/** Fetch a specific flood extent with full GeoJSON from backend. */
+/** Fetch a specific flood extent with full GeoJSON — tries Next.js API route first, then backend. */
 export async function fetchFloodExtent(
   timestamp?: string | null
 ): Promise<FloodExtentRecord | null> {
-  const url = timestamp
-    ? `${BACKEND_URL}/api/eo/sentinel/flood-extent?timestamp=${encodeURIComponent(timestamp)}`
-    : `${BACKEND_URL}/api/eo/sentinel/flood-extent`
-  const res = await fetch(url)
-  if (!res.ok) return null
-  const data = await res.json()
-  if (data.error) return null
-  return data as FloodExtentRecord
+  const qs = timestamp ? `?timestamp=${encodeURIComponent(timestamp)}` : ""
+
+  // Try Next.js API route (works on Vercel)
+  try {
+    const res = await fetch(`/api/eo/sentinel/flood-extent${qs}`)
+    if (res.ok) {
+      const data = await res.json()
+      if (!data.error) return data as FloodExtentRecord
+    }
+  } catch { /* fall through */ }
+
+  // Try Python backend (local dev)
+  if (BACKEND_URL) {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/eo/sentinel/flood-extent${qs}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (!data.error) return data as FloodExtentRecord
+      }
+    } catch { /* fall through */ }
+  }
+
+  return null
 }
 
 // ---------------------------------------------------------------------------
