@@ -11,7 +11,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Brain, RefreshCw, AlertTriangle } from "lucide-react";
 import GlassCard from "./GlassCard";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "";
 const REFRESH_INTERVAL = 60_000; // 60 seconds
 
 interface AIResponse {
@@ -33,7 +33,18 @@ export default function AIInterpretationPanel() {
   const fetchInterpretation = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/ai/interpret`);
+      // Try backend first (local dev), fall back to Next.js API route (Vercel)
+      let res: Response | null = null;
+      if (BACKEND_URL) {
+        try {
+          res = await fetch(`${BACKEND_URL}/api/ai/interpret`, { signal: AbortSignal.timeout(5000) });
+        } catch {
+          // Backend unreachable — fall through to Next.js route
+        }
+      }
+      if (!res || !res.ok) {
+        res = await fetch("/api/ai/interpret");
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: AIResponse = await res.json();
       setData(json);
