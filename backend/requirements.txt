@@ -1,34 +1,32 @@
 # =============================================================================
 # RapidRelay Backend — Python Dependencies
-#
-# Core:
-#   fastapi       – async web framework with auto-generated OpenAPI docs
-#   uvicorn       – ASGI server
-#   pydantic      – data validation (included with fastapi)
-#
-# Data:
-#   pandas        – CSV/dataframe operations (ported from prototype)
-#   pyyaml        – threshold config parsing
-#
-# Geospatial (Phase 2 prep):
-#   rasterio      – GeoTIFF/COG raster I/O
-#   shapely       – geometry operations
-#   pystac-client – Sentinel-1 STAC catalog queries
-#
-# Utilities:
-#   python-dotenv – .env file loading
-#   httpx         – async HTTP client (for potential future proxying)
 # =============================================================================
 
+# Core web framework
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.9.0
+
+# Database (async SQLite)
+sqlalchemy>=2.0.0
+aiosqlite>=0.20.0
+
+# ML model serving
+joblib>=1.4.0
+xgboost>=2.0.0
+numpy>=1.26.0
 pandas>=2.2.0
+scikit-learn>=1.5.0
+
+# Config
 pyyaml>=6.0
 python-dotenv>=1.0.0
-httpx>=0.27.0
 
-# Geo (Phase 2 — uncomment when ready for real SAR processing)
-# rasterio>=1.4.0
-# shapely>=2.0.0
-# pystac-client>=0.8.0
+# Geospatial (for STAC catalog queries)
+pystac-client>=0.8.0
+
+# Supabase (cloud database + auth)
+supabase>=2.0.0
+
+# AI interpretation (Groq — fast LLM inference)
+groq>=0.9.0

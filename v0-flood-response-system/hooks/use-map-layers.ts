@@ -23,6 +23,9 @@ import { defaultMapLayerConfig } from "@/lib/map-types"
 
 const STORAGE_KEY = "rapidrelay_map_layers"
 
+/** Valid Mapbox base map keys */
+const VALID_BASE_MAPS: BaseMapStyle[] = ["dark", "satellite", "streets", "outdoors"]
+
 function loadFromStorage(): MapLayerConfig | null {
   if (typeof window === "undefined") return null
   try {
@@ -30,10 +33,15 @@ function loadFromStorage(): MapLayerConfig | null {
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<MapLayerConfig>
     const defaults = defaultMapLayerConfig()
+    // Validate baseMap — old Leaflet keys like "esri-satellite" are invalid
+    const baseMap = VALID_BASE_MAPS.includes(parsed.baseMap as BaseMapStyle)
+      ? (parsed.baseMap as BaseMapStyle)
+      : defaults.baseMap
     // Deep-merge with defaults so new fields (e.g. overlays) are always present
     return {
       ...defaults,
       ...parsed,
+      baseMap,
       himawari: { ...defaults.himawari, ...parsed.himawari },
       rainViewer: { ...defaults.rainViewer, ...parsed.rainViewer },
       sentinel: { ...defaults.sentinel, ...parsed.sentinel },
@@ -58,11 +66,12 @@ export function useMapLayers() {
     return loadFromStorage() ?? defaultMapLayerConfig()
   })
 
-  // Persist on every change
+  // Persist on change — debounced to avoid thrashing during animation
   const configRef = useRef(config)
   configRef.current = config
   useEffect(() => {
-    saveToStorage(config)
+    const timer = setTimeout(() => saveToStorage(config), 2000)
+    return () => clearTimeout(timer)
   }, [config])
 
   // --- Actions ---------------------------------------------------------------

@@ -20,15 +20,17 @@ import { Label } from "@/components/ui/label"
 import {
   Layers, Satellite, CloudRain, Radio, Eye, EyeOff,
   ChevronDown, ChevronUp, Palette, AlertTriangle,
-  RefreshCw, Tag, Globe, Moon, Crosshair, MapPin,
+  RefreshCw, Tag, Globe, Moon, Crosshair,
 } from "lucide-react"
 import type { MapLayerConfig, MapLayerActions, BaseMapStyle } from "@/lib/map-types"
 import type { UseRainViewerReturn } from "@/hooks/use-rainviewer"
+import type { UseHimawariReturn, HimawariFrame } from "@/hooks/use-himawari"
 import { TimeScrubber } from "./TimeScrubber"
 import { AnimationControls } from "./AnimationControls"
 import { RainLegend } from "./Legend"
 import { LayerToggle } from "./LayerToggle"
-import { mockFloodExtents } from "@/lib/sentinel-mock-data"
+import { fetchFloodExtentList, getMockFloodExtentSummaries } from "@/lib/sentinel-mock-data"
+import type { FloodExtentSummary } from "@/lib/sentinel-mock-data"
 
 // Philippines is UTC+8.
 // "Night" ≈ 18:00–06:00 local time → Himawari Visible shows near-black image.
@@ -38,10 +40,19 @@ function isNightInPhilippines(): boolean {
   return phHour >= 18 || phHour < 6
 }
 
+/** Himawari animation state passed from AppShell */
+export interface HimawariAnimationData {
+  frames: HimawariFrame[]   // array of { time, label, url } objects
+  currentIndex: number       // current frame index
+}
+
 interface MapControlsProps {
   config: MapLayerConfig
   actions: MapLayerActions
   rainViewer?: UseRainViewerReturn
+  himawariAnimation?: HimawariAnimationData
+  /** The useHimawari hook return for navigation callbacks */
+  himawariHook?: UseHimawariReturn
   /** Whether to start collapsed (for mobile) */
   defaultCollapsed?: boolean
 }
@@ -93,9 +104,197 @@ function Section({
 }
 
 // ---------------------------------------------------------------------------
+// Sentinel-1 Section (fetches real data from backend, falls back to mock)
+// ---------------------------------------------------------------------------
+function SentinelSection({ config, actions }: { config: MapLayerConfig; actions: MapLayerActions }) {
+  const [extents, setExtents] = useState<FloodExtentSummary[]>([])
+  const [dataSource, setDataSource] = useState<"loading" | "gee-csv" | "mock">("loading")
+
+  // Fetch available dates from backend on mount
+  useEffect(() => {
+    fetchFloodExtentList()
+      .then((list) => {
+        if (list.length > 0) {
+          setExtents(list)
+          setDataSource("gee-csv")
+        } else {
+          setExtents(getMockFloodExtentSummaries())
+          setDataSource("mock")
+        }
+      })
+      .catch(() => {
+        setExtents(getMockFloodExtentSummaries())
+        setDataSource("mock")
+      })
+  }, [])
+
+  const selectedExt = extents.find((e) => e.id === config.sentinel.acquisitionDate)
+  const currentIndex = extents.findIndex((e) => e.id === config.sentinel.acquisitionDate)
+
+  // Animation loop
+  useEffect(() => {
+    if (!config.sentinel.enabled || !config.sentinel.animating || extents.length === 0) return
+    const interval = setInterval(() => {
+      const idx = currentIndex >= 0 ? currentIndex : 0
+      const next = (idx + 1) % extents.length
+      actions.setSentinel({ acquisitionDate: extents[next].id })
+    }, config.sentinel.animationSpeed)
+    return () => clearInterval(interval)
+  }, [config.sentinel.enabled, config.sentinel.animating, config.sentinel.animationSpeed, currentIndex, extents, actions])
+
+  return (
+    <div className="rounded-md border p-2.5 space-y-2">
+      <LayerToggle
+        label="Sentinel-1 Flood Extent"
+        icon={<Radio className="h-4 w-4" />}
+        enabled={config.sentinel.enabled}
+        onToggle={() => {
+          const willEnable = !config.sentinel.enabled
+          if (willEnable && !config.sentinel.acquisitionDate && extents.length > 0) {
+            const latest = extents[extents.length - 1]
+            actions.setSentinel({ enabled: true, acquisitionDate: latest.id })
+          } else {
+            actions.setSentinel({ enabled: willEnable })
+          }
+        }}
+        badge={dataSource === "gee-csv" ? "GEE Data" : dataSource === "mock" ? "Mock" : "..."}
+        accentColor="text-orange-400"
+      />
+
+      <p className="text-[10px] text-muted-foreground leading-tight">
+        {dataSource === "gee-csv"
+          ? `Real GEE Sentinel-1 SAR data. ${extents.length} acquisitions (2017-2026).`
+          : "SAR-derived flood extent simulation for Obando, Bulacan."}
+      </p>
+
+      {config.sentinel.enabled && (
+        <div className="space-y-2 pt-0.5">
+          {/* Animation controls (chronological playback) */}
+          {extents.length > 1 && (
+            <>
+              <TimeScrubber
+                currentIndex={currentIndex >= 0 ? currentIndex : 0}
+                totalFrames={extents.length}
+                nowIndex={extents.length - 1}
+                timeLabel={selectedExt?.date ? new Date(selectedExt.date).toLocaleDateString() : "—"}
+                relativeLabel={selectedExt?.status?.toUpperCase()}
+                isForecast={false}
+                onIndexChange={(i) => actions.setSentinel({ acquisitionDate: extents[i]?.id ?? null })}
+                onStepBack={() => {
+                  const prev = Math.max(0, (currentIndex >= 0 ? currentIndex : 0) - 1)
+                  actions.setSentinel({ acquisitionDate: extents[prev].id })
+                }}
+                onStepForward={() => {
+                  const next = Math.min(extents.length - 1, (currentIndex >= 0 ? currentIndex : 0) + 1)
+                  actions.setSentinel({ acquisitionDate: extents[next].id })
+                }}
+                accentClass="accent-orange-400"
+              />
+
+              <AnimationControls
+                playing={config.sentinel.animating}
+                speed={config.sentinel.animationSpeed}
+                onTogglePlay={() => actions.setSentinel({ animating: !config.sentinel.animating })}
+                onSetSpeed={(ms) => actions.setSentinel({ animationSpeed: ms })}
+                onPrev={() => {
+                  const prev = Math.max(0, (currentIndex >= 0 ? currentIndex : 0) - 1)
+                  actions.setSentinel({ acquisitionDate: extents[prev].id })
+                }}
+                onNext={() => {
+                  const next = Math.min(extents.length - 1, (currentIndex >= 0 ? currentIndex : 0) + 1)
+                  actions.setSentinel({ acquisitionDate: extents[next].id })
+                }}
+                onJumpBack={() => {
+                  const prev = Math.max(0, (currentIndex >= 0 ? currentIndex : 0) - 10)
+                  actions.setSentinel({ acquisitionDate: extents[prev].id })
+                }}
+                onJumpForward={() => {
+                  const next = Math.min(extents.length - 1, (currentIndex >= 0 ? currentIndex : 0) + 10)
+                  actions.setSentinel({ acquisitionDate: extents[next].id })
+                }}
+                onJumpToLatest={() => actions.setSentinel({ acquisitionDate: extents[extents.length - 1].id })}
+                accentBg="bg-orange-500"
+                accentBorder="border-orange-500"
+              />
+            </>
+          )}
+
+          {/* Date selector (dropdown) */}
+          <div className="flex items-center gap-2">
+            <Label className="text-[10px] text-muted-foreground w-12 shrink-0">Date</Label>
+            <select
+              value={config.sentinel.acquisitionDate ?? ""}
+              onChange={(e) =>
+                actions.setSentinel({ acquisitionDate: e.target.value || null })
+              }
+              className="flex-1 min-w-0 text-[10px] rounded border border-border bg-background px-1.5 py-1 truncate"
+            >
+              <option value="">Select acquisition...</option>
+              {extents.map((ext) => (
+                <option key={ext.id} value={ext.id}>
+                  {ext.date ? new Date(ext.date).toLocaleDateString() : ext.id} — {ext.status.toUpperCase()}
+                  {ext.floodExtent !== undefined ? ` (${(ext.floodExtent * 100).toFixed(0)}%)` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Opacity */}
+          <OpacitySlider
+            value={config.sentinel.opacity}
+            onChange={(v) => actions.setSentinel({ opacity: v })}
+          />
+
+          {/* Status indicator for selected date */}
+          {selectedExt && (() => {
+            const color =
+              selectedExt.status === "critical" ? "text-red-400 border-red-500/30 bg-red-500/10" :
+              selectedExt.status === "warning"  ? "text-orange-400 border-orange-500/30 bg-orange-500/10" :
+              "text-green-400 border-green-500/30 bg-green-500/10"
+            return (
+              <div className={`rounded border px-2 py-1.5 ${color}`}>
+                <p className="text-[10px] font-medium">
+                  {selectedExt.status.toUpperCase()} — {selectedExt.floodAreaHa.toFixed(1)} ha flooded
+                </p>
+                {selectedExt.floodExtent !== undefined && (
+                  <p className="text-[9px] opacity-80">
+                    Flood extent: {(selectedExt.floodExtent * 100).toFixed(1)}% | Soil saturation: {(selectedExt.soilSaturation * 100).toFixed(0)}%
+                    {selectedExt.wetnessTrend !== null && (
+                      <> | Trend: {selectedExt.wetnessTrend === 1 ? "Wetting" : selectedExt.wetnessTrend === -1 ? "Drying" : "Stable"}</>
+                    )}
+                  </p>
+                )}
+                <p className="text-[8px] opacity-60">{dataSource === "gee-csv" ? "Source: Google Earth Engine" : "Source: Mock simulation"}</p>
+              </div>
+            )
+          })()}
+
+          {/* Zone legend */}
+          <div className="space-y-0.5">
+            <p className="text-[9px] text-muted-foreground font-medium">Zone Legend</p>
+            <div className="flex gap-2">
+              {[
+                { color: "bg-red-600",    label: "Zone A – Dike" },
+                { color: "bg-orange-600", label: "Zone B – Residential" },
+                { color: "bg-amber-500",  label: "Zone C – Fields" },
+              ].map((z) => (
+                <div key={z.label} className="flex items-center gap-1">
+                  <span className={`inline-block w-2.5 h-2.5 rounded-sm ${z.color}`} />
+                  <span className="text-[8px] text-muted-foreground">{z.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
-export function MapControls({ config, actions, rainViewer, defaultCollapsed }: MapControlsProps) {
+export function MapControls({ config, actions, rainViewer, himawariAnimation, himawariHook, defaultCollapsed }: MapControlsProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed ?? false)
   // Compute night status client-side only to prevent SSR/hydration mismatch
   const [isNight, setIsNight] = useState(false)
@@ -104,10 +303,10 @@ export function MapControls({ config, actions, rainViewer, defaultCollapsed }: M
   }, [])
 
   const baseMapOptions: { key: BaseMapStyle; label: string }[] = [
-    { key: "esri-satellite", label: "Satellite" },
-    { key: "esri-dark", label: "Dark" },
-    { key: "carto-dark", label: "CartoDB" },
-    { key: "osm", label: "OSM" },
+    { key: "satellite", label: "Satellite" },
+    { key: "dark", label: "Dark" },
+    { key: "streets", label: "Streets" },
+    { key: "outdoors", label: "Terrain" },
   ]
 
   // RainViewer derived state
@@ -117,8 +316,8 @@ export function MapControls({ config, actions, rainViewer, defaultCollapsed }: M
     rainViewer?.error ? "error" : "online"
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="pb-2">
+    <Card className="border-0 shadow-none bg-transparent">
+      <CardHeader className="pb-2 px-0 pt-0">
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-base">
             <Layers className="h-5 w-5" />
@@ -135,7 +334,7 @@ export function MapControls({ config, actions, rainViewer, defaultCollapsed }: M
       </CardHeader>
 
       {!collapsed && (
-        <CardContent className="space-y-4 pt-0">
+        <CardContent className="space-y-4 pt-0 px-0 pb-0">
 
           {/* ═══ BASE MAP ═══════════════════════════════════════════ */}
           <Section title="Base Map">
@@ -253,62 +452,46 @@ export function MapControls({ config, actions, rainViewer, defaultCollapsed }: M
                   onChange={(v) => actions.setHimawari({ opacity: v })}
                 />
 
-                {/* Date + step buttons */}
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      const d = new Date(config.himawari.time)
-                      d.setDate(d.getDate() - 1)
-                      actions.setHimawari({ time: d.toISOString().slice(0, 10) })
-                    }}
-                    className="text-[10px] rounded border border-border px-1.5 py-0.5 hover:bg-muted"
-                  >
-                    ← 1d
-                  </button>
-                  <input
-                    type="date"
-                    value={config.himawari.time}
-                    onChange={(e) => actions.setHimawari({ time: e.target.value })}
-                    max={new Date().toISOString().slice(0, 10)}
-                    className="flex-1 text-[10px] rounded border border-border bg-background px-1.5 py-0.5"
-                  />
-                  <button
-                    onClick={() => {
-                      const d = new Date(config.himawari.time)
-                      d.setDate(d.getDate() + 1)
-                      const max = new Date().toISOString().slice(0, 10)
-                      const next = d.toISOString().slice(0, 10)
-                      if (next <= max) actions.setHimawari({ time: next })
-                    }}
-                    className="text-[10px] rounded border border-border px-1.5 py-0.5 hover:bg-muted"
-                  >
-                    1d →
-                  </button>
-                </div>
+                {/* Animation controls (24h playback at 10-min intervals) */}
+                {himawariAnimation && himawariHook && himawariAnimation.frames.length > 0 && (
+                  <>
+                    <TimeScrubber
+                      currentIndex={himawariAnimation.currentIndex}
+                      totalFrames={himawariAnimation.frames.length}
+                      nowIndex={himawariAnimation.frames.length - 1}
+                      timeLabel={himawariAnimation.frames[himawariAnimation.currentIndex]?.label ?? "—"}
+                      relativeLabel={himawariHook.relativeLabel}
+                      isForecast={false}
+                      onIndexChange={(i) => himawariHook.setFrameIndex(i)}
+                      onStepBack={() => himawariHook.prevFrame()}
+                      onStepForward={() => himawariHook.nextFrame()}
+                      accentClass="accent-blue-400"
+                    />
 
-                {/* Quick offsets */}
-                <div className="flex gap-1">
-                  {[
-                    { label: "−24h", offset: -24 },
-                    { label: "−12h", offset: -12 },
-                    { label: "−4h", offset: -4 },
-                    { label: "Now*", offset: -4 },
-                  ].map(({ label, offset }) => (
-                    <button
-                      key={label}
-                      onClick={() => {
-                        const d = new Date(Date.now() + offset * 3600000)
-                        actions.setHimawari({ time: d.toISOString().slice(0, 10) })
+                    <AnimationControls
+                      playing={config.himawari.animating}
+                      speed={config.himawari.animationSpeed}
+                      onTogglePlay={() => actions.setHimawari({ animating: !config.himawari.animating })}
+                      onSetSpeed={(ms) => actions.setHimawari({ animationSpeed: ms })}
+                      onPrev={() => himawariHook.prevFrame()}
+                      onNext={() => himawariHook.nextFrame()}
+                      onJumpBack={() => {
+                        const prev = Math.max(0, himawariAnimation.currentIndex - 6)
+                        himawariHook.setFrameIndex(prev)
                       }}
-                      className="flex-1 text-[9px] rounded border border-border px-0.5 py-0.5 hover:bg-muted transition-colors"
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                      onJumpForward={() => {
+                        const next = Math.min(himawariAnimation.frames.length - 1, himawariAnimation.currentIndex + 6)
+                        himawariHook.setFrameIndex(next)
+                      }}
+                      onJumpToLatest={() => himawariHook.jumpToLatest()}
+                      accentBg="bg-blue-500"
+                      accentBorder="border-blue-500"
+                    />
+                  </>
+                )}
 
                 <p className="text-[9px] text-amber-400/80 leading-tight">
-                  ⚠ 3–5 hour delay from real-time. Max zoom level 8.
+                  Hourly satellite imagery (24h). 3-5 hour delay. Max zoom 6-7.
                 </p>
               </div>
             )}
@@ -474,93 +657,7 @@ export function MapControls({ config, actions, rainViewer, defaultCollapsed }: M
           </div>
 
           {/* ═══ SENTINEL-1 FLOOD EXTENT ══════════════════════════ */}
-          <div className="rounded-md border p-2.5 space-y-2">
-            <LayerToggle
-              label="Sentinel-1 Flood Extent"
-              icon={<Radio className="h-4 w-4" />}
-              enabled={config.sentinel.enabled}
-              onToggle={() => {
-                const willEnable = !config.sentinel.enabled
-                // Auto-select latest acquisition when enabling so polygons appear immediately
-                if (willEnable && !config.sentinel.acquisitionDate) {
-                  const latest = mockFloodExtents[mockFloodExtents.length - 1]
-                  actions.setSentinel({ enabled: true, acquisitionDate: latest?.id ?? null })
-                } else {
-                  actions.setSentinel({ enabled: willEnable })
-                }
-              }}
-              badge="Simulated"
-              accentColor="text-orange-400"
-            />
-
-            <p className="text-[10px] text-muted-foreground leading-tight">
-              SAR-derived flood extent simulation for Obando, Bulacan. 3 acquisition dates.
-            </p>
-
-            {config.sentinel.enabled && (
-              <div className="space-y-2 pt-0.5">
-                {/* Date selector */}
-                <div className="flex items-center gap-2">
-                  <Label className="text-[10px] text-muted-foreground w-12 shrink-0">Date</Label>
-                  <select
-                    value={config.sentinel.acquisitionDate ?? ""}
-                    onChange={(e) =>
-                      actions.setSentinel({ acquisitionDate: e.target.value || null })
-                    }
-                    className="flex-1 text-[10px] rounded border border-border bg-background px-1.5 py-1"
-                  >
-                    <option value="">Select acquisition…</option>
-                    {mockFloodExtents.map((ext) => (
-                      <option key={ext.id} value={ext.id}>
-                        {new Date(ext.date).toLocaleDateString()} — {ext.status.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Opacity */}
-                <OpacitySlider
-                  value={config.sentinel.opacity}
-                  onChange={(v) => actions.setSentinel({ opacity: v })}
-                />
-
-                {/* Status indicator for selected date */}
-                {config.sentinel.acquisitionDate && (() => {
-                  const ext = mockFloodExtents.find((e) => e.id === config.sentinel.acquisitionDate)
-                  if (!ext) return null
-                  const color =
-                    ext.status === "critical" ? "text-red-400 border-red-500/30 bg-red-500/10" :
-                    ext.status === "warning"  ? "text-orange-400 border-orange-500/30 bg-orange-500/10" :
-                    "text-green-400 border-green-500/30 bg-green-500/10"
-                  return (
-                    <div className={`rounded border px-2 py-1.5 ${color}`}>
-                      <p className="text-[10px] font-medium">
-                        {ext.status.toUpperCase()} — {ext.floodAreaHa.toFixed(1)} ha flooded
-                      </p>
-                      <p className="text-[9px] opacity-80">{ext.description}</p>
-                    </div>
-                  )
-                })()}
-
-                {/* Zone legend */}
-                <div className="space-y-0.5">
-                  <p className="text-[9px] text-muted-foreground font-medium">Zone Legend</p>
-                  <div className="flex gap-2">
-                    {[
-                      { color: "bg-red-600",    label: "Zone A – Dike" },
-                      { color: "bg-orange-600", label: "Zone B – Residential" },
-                      { color: "bg-amber-500",  label: "Zone C – Fields" },
-                    ].map((z) => (
-                      <div key={z.label} className="flex items-center gap-1">
-                        <span className={`inline-block w-2.5 h-2.5 rounded-sm ${z.color}`} />
-                        <span className="text-[8px] text-muted-foreground">{z.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          <SentinelSection config={config} actions={actions} />
 
           {/* ═══ MAP OVERLAYS (Zoom Earth style) ══════════════════ */}
           <Section title="Map Overlays">

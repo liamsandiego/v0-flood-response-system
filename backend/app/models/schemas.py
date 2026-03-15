@@ -78,11 +78,11 @@ class HimawariCapabilities(BaseModel):
     products: List[str] = Field(
         default_factory=lambda: [
             "Himawari_AHI_Band13_Clean_Infrared",
-            "Himawari_AHI_Band3_Red_Visible",
+            "Himawari_AHI_Band3_Red_Visible_1km",
         ]
     )
     wms_endpoint: str = "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi"
-    max_zoom: int = 8
+    max_zoom: int = 7
     typical_delay_hours: float = 4.0
     coverage: str = "East Asia / West Pacific (includes Philippines)"
     note: str = (

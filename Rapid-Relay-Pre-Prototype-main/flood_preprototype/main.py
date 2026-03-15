@@ -1,33 +1,32 @@
 import pandas as pd
 from datetime import datetime
 
-from scripts.eo_downloader import download_recent_sentinel1
 from models import predictor
 from alerts.notifier import notify
 from models.calibrator import load_thresholds
-from scripts import generate_mock_data
+from scripts import Sat_SensorData_proxy
+from scripts import sentinel1_GEE
 
 def main():
     # -------------------------
-    # 1. Generate mock data
+    # 1. Sat_SensorData_proxy 
     # -------------------------
-    for _ in range(10):
-        generate_mock_data.main()
 
+    Sat_SensorData_proxy.main()
     # -------------------------
     # 2. EO ingestion (offline / contextual)
     # -------------------------
-    download_recent_sentinel1(days=0.15, max_items=1)
+    sentinel1_GEE.main()
 
     # -------------------------
     # 3. Load base thresholds
     # -------------------------
-    thresholds = load_thresholds()
+    #thresholds = load_thresholds()
 
     # -------------------------
     # 4. Prediction Algorithm
     # -------------------------
-    predictor.main()
+    #predictor.main()
 
     # -------------------------
     # 5. Notification

@@ -132,7 +132,7 @@ export function DataTab({ history }: DataTabProps) {
             </CardTitle>
             <CardDescription className="mt-1">
               {filtered.length} record{filtered.length !== 1 ? "s" : ""} •
-              Session history (resets on page reload)
+              Persisted in Supabase
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">

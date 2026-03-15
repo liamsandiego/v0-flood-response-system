@@ -1,14 +1,14 @@
 // =============================================================================
 // RapidRelay – Map Layer Types (v2)
-// Performance-optimized types for the Leaflet map + overlays.
+// Types for the Mapbox GL globe + overlays.
 // =============================================================================
 
-/** Available base map styles */
+/** Available base map styles (Mapbox GL JS compatible) */
 export type BaseMapStyle =
-  | "esri-satellite"
-  | "esri-dark"
-  | "carto-dark"
-  | "osm"
+  | "dark"
+  | "satellite"
+  | "streets"
+  | "outdoors"
 
 /** State of a single toggleable overlay layer */
 export interface OverlayLayerState {
@@ -18,7 +18,7 @@ export interface OverlayLayerState {
 
 /** Himawari-specific state */
 export interface HimawariLayerState extends OverlayLayerState {
-  time: string            // YYYY-MM-DD for GIBS TIME param
+  time: string            // ISO 8601 timestamp (YYYY-MM-DDTHH:MM:SSZ) or YYYY-MM-DD
   product: "infrared" | "visible"
   animating: boolean
   animationSpeed: number  // ms per frame
@@ -34,9 +34,11 @@ export interface RainViewerLayerState extends OverlayLayerState {
   snow: boolean
 }
 
-/** Sentinel-1 overlay state (Phase 2 placeholder) */
+/** Sentinel-1 overlay state */
 export interface SentinelLayerState extends OverlayLayerState {
   acquisitionDate: string | null
+  animating: boolean
+  animationSpeed: number  // ms per frame
 }
 
 /** Map overlay toggles inspired by Zoom Earth */
@@ -79,7 +81,7 @@ export function defaultMapLayerConfig(): MapLayerConfig {
   const himawariTime = fourHoursAgo.toISOString().slice(0, 10)
 
   return {
-    baseMap: "esri-satellite",
+    baseMap: "dark",
     himawari: {
       enabled: false,
       opacity: 0.7,
@@ -102,6 +104,8 @@ export function defaultMapLayerConfig(): MapLayerConfig {
       enabled: false,
       opacity: 0.7,
       acquisitionDate: null,
+      animating: false,
+      animationSpeed: 500,
     },
     overlays: {
       mapLabels: true,

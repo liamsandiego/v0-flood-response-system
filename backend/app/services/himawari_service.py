@@ -31,12 +31,16 @@ HIMAWARI_PRODUCTS = [
         "label": "Clean Infrared (Band 13)",
         "description": "10.4 µm infrared — works day and night. Shows cloud-top temperature.",
         "day_night": "both",
+        "tile_matrix_set": "GoogleMapsCompatible_Level6",
+        "max_zoom": 6,
     },
     {
-        "id": "Himawari_AHI_Band3_Red_Visible",
-        "label": "Red Visible (Band 3)",
+        "id": "Himawari_AHI_Band3_Red_Visible_1km",
+        "label": "Red Visible (Band 3, 1km)",
         "description": "0.64 µm visible — daytime only. True-color-like imagery.",
         "day_night": "day_only",
+        "tile_matrix_set": "GoogleMapsCompatible_Level7",
+        "max_zoom": 7,
     },
 ]
 

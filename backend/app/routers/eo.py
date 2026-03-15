@@ -3,13 +3,15 @@
 # =============================================================================
 
 from fastapi import APIRouter, Query
-from typing import List
+from typing import List, Optional
 
 from app.services.sentinel_service import (
     get_latest_eo_features,
     get_eo_history,
     list_sentinel_catalog,
     search_stac_catalog,
+    get_flood_extent_geojson,
+    get_all_flood_extents,
 )
 from app.models.schemas import EOFeatures, SentinelCatalogItem
 
@@ -32,6 +34,34 @@ async def get_eo_features_history(
 ):
     """Return recent EO feature rows."""
     return get_eo_history(limit)
+
+
+@router.get("/sentinel/flood-extent")
+async def get_sentinel_flood_extent(
+    timestamp: Optional[str] = Query(
+        default=None,
+        description="Scene ID (e.g. S1_GEE_20260220) or date (YYYY-MM-DD). "
+                    "Returns closest match. Omit for latest.",
+    ),
+):
+    """Return GeoJSON flood extent polygons derived from real GEE Sentinel-1 data.
+
+    Uses the soil_saturation and flood_extent values from the 9-year GEE
+    timeseries CSV to generate spatially accurate flood polygons for Obando.
+    """
+    result = get_flood_extent_geojson(timestamp)
+    if not result:
+        return {"error": "No GEE Sentinel-1 data available", "source": "none"}
+    return result
+
+
+@router.get("/sentinel/flood-extents")
+async def list_sentinel_flood_extents():
+    """List all available flood extent records from GEE CSV (no GeoJSON, just metadata).
+
+    Use this to populate the date picker in the frontend.
+    """
+    return get_all_flood_extents()
 
 
 @router.get("/sentinel/catalog", response_model=List[SentinelCatalogItem])

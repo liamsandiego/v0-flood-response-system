@@ -63,32 +63,30 @@ export function LayerToggle({
   accentColor = "text-primary",
 }: LayerToggleProps) {
   return (
-    <div className="flex items-center justify-between py-1">
-      <div className="flex items-center gap-2 min-w-0">
-        <button
-          onClick={onToggle}
-          className={`flex items-center gap-2 transition-colors ${
-            enabled ? accentColor : "text-muted-foreground"
-          }`}
-        >
-          {enabled ? <Eye className="h-3.5 w-3.5 shrink-0" /> : <EyeOff className="h-3.5 w-3.5 shrink-0" />}
-          <span className={`h-4 w-4 shrink-0 ${enabled ? "" : "opacity-40"}`}>{icon}</span>
-          <span className={`text-sm truncate ${enabled ? "font-medium" : "opacity-60"}`}>
-            {label}
-          </span>
-        </button>
-        {status !== "none" && <StatusDot status={status} />}
-      </div>
+    <div className="flex items-center justify-between gap-1.5 py-1 overflow-hidden">
+      <button
+        onClick={onToggle}
+        className={`flex items-center gap-1.5 min-w-0 transition-colors ${
+          enabled ? accentColor : "text-muted-foreground"
+        }`}
+      >
+        {enabled ? <Eye className="h-3.5 w-3.5 shrink-0" /> : <EyeOff className="h-3.5 w-3.5 shrink-0" />}
+        <span className={`h-4 w-4 shrink-0 ${enabled ? "" : "opacity-40"}`}>{icon}</span>
+        <span className={`text-xs truncate ${enabled ? "font-medium" : "opacity-60"}`}>
+          {label}
+        </span>
+      </button>
 
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-1 shrink-0">
+        {status !== "none" && <StatusDot status={status} />}
         {badge && (
-          <span className="text-[9px] bg-muted text-muted-foreground border border-border rounded-full px-1.5 py-0.5">
+          <span className="text-[8px] bg-muted text-muted-foreground border border-border rounded-full px-1.5 py-0.5 whitespace-nowrap">
             {badge}
           </span>
         )}
         <button
           onClick={onToggle}
-          className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+          className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors whitespace-nowrap ${
             enabled
               ? "bg-primary text-primary-foreground border-primary"
               : "bg-muted border-border text-muted-foreground"

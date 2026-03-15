@@ -1,15 +1,15 @@
 // =============================================================================
-// RapidRelay – Sentinel-1 Mock Flood Extent Data
+// RapidRelay – Sentinel-1 Flood Extent Data
 //
-// Simulated SAR-derived flood detection for Obando, Bulacan area.
-// GeoJSON polygons representing water/flood areas at different dates.
-// Realistic coordinates around the PAGASA Obando deployment zone.
+// Fetches real SAR-derived flood extents from the backend (GEE CSV data).
+// Falls back to hardcoded mock scenarios when backend is unavailable.
 //
-// Three scenarios:
-//   1. Normal (Mar 1) — just rivers / ponds
-//   2. Warning (Mar 3) — low-lying fields beginning to flood
-//   3. Critical (Mar 5) — widespread flooding in Zones B+C
+// Backend endpoint: GET /api/eo/sentinel/flood-extent?timestamp=<id>
+// Backend endpoint: GET /api/eo/sentinel/flood-extents (list all dates)
 // =============================================================================
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 export interface FloodExtentRecord {
   /** Unique identifier matching Sentinel-1 scene naming */
@@ -24,8 +24,53 @@ export interface FloodExtentRecord {
   floodAreaHa: number
   /** Number of detected flood polygons */
   polygonCount: number
+  /** Data source: "gee-csv" | "mock" */
+  source?: string
+  /** Soil saturation 0-1 (from GEE) */
+  soilSaturation?: number
+  /** Flood extent fraction 0-1 (from GEE) */
+  floodExtent?: number
+  /** Wetness trend -1/0/1 */
+  wetnessTrend?: number
   /** GeoJSON FeatureCollection with flood extents */
   geojson: GeoJSON.FeatureCollection
+}
+
+/** Summary record (no GeoJSON) for the date picker */
+export interface FloodExtentSummary {
+  id: string
+  date: string
+  status: "normal" | "warning" | "critical"
+  floodAreaHa: number
+  floodExtent: number
+  soilSaturation: number
+  wetnessTrend: number | null
+  source: string
+}
+
+// ---------------------------------------------------------------------------
+// Backend API fetchers
+// ---------------------------------------------------------------------------
+
+/** Fetch all available flood extent dates from backend (lightweight, no GeoJSON). */
+export async function fetchFloodExtentList(): Promise<FloodExtentSummary[]> {
+  const res = await fetch(`${BACKEND_URL}/api/eo/sentinel/flood-extents`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+/** Fetch a specific flood extent with full GeoJSON from backend. */
+export async function fetchFloodExtent(
+  timestamp?: string | null
+): Promise<FloodExtentRecord | null> {
+  const url = timestamp
+    ? `${BACKEND_URL}/api/eo/sentinel/flood-extent?timestamp=${encodeURIComponent(timestamp)}`
+    : `${BACKEND_URL}/api/eo/sentinel/flood-extent`
+  const res = await fetch(url)
+  if (!res.ok) return null
+  const data = await res.json()
+  if (data.error) return null
+  return data as FloodExtentRecord
 }
 
 // ---------------------------------------------------------------------------
@@ -354,8 +399,22 @@ export const mockFloodExtents: FloodExtentRecord[] = [
   },
 ]
 
-/** Find extent by ID, or return the latest */
+/** Find extent by ID, or return the latest (mock fallback only) */
 export function getFloodExtent(id: string | null): FloodExtentRecord | undefined {
   if (!id) return mockFloodExtents[mockFloodExtents.length - 1]
   return mockFloodExtents.find((e) => e.id === id)
+}
+
+/** Return mock summaries for the date picker fallback */
+export function getMockFloodExtentSummaries(): FloodExtentSummary[] {
+  return mockFloodExtents.map((e) => ({
+    id: e.id,
+    date: e.date,
+    status: e.status,
+    floodAreaHa: e.floodAreaHa,
+    floodExtent: e.status === "critical" ? 0.12 : e.status === "warning" ? 0.06 : 0.02,
+    soilSaturation: e.status === "critical" ? 0.58 : e.status === "warning" ? 0.48 : 0.40,
+    wetnessTrend: e.status === "critical" ? 1 : 0,
+    source: "mock",
+  }))
 }

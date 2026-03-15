@@ -1,0 +1,146 @@
+=============================================
+  RAPID RELAY — How to Run
+=============================================
+
+
+═══════ LOCAL DEVELOPMENT ═══════
+
+EASY WAY (recommended):
+  1. Double-click  start.bat     (starts both backend + frontend)
+  2. Wait ~10 seconds
+  3. Open browser:  http://localhost:3000
+  4. To stop everything:  double-click  kill.bat
+
+MANUAL WAY (if start.bat doesn't work):
+
+  STEP 1 — Start Backend (Terminal 1)
+  ------------------------------------
+  cd backend
+  python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+  Check it works:  http://localhost:8001/docs
+
+
+  STEP 2 — Start Frontend (Terminal 2)
+  ------------------------------------
+  cd v0-flood-response-system
+  npm run dev
+
+  Open browser:  http://localhost:3000
+
+
+═══════ DEPLOYMENT (Vercel + Supabase) ═══════
+
+The app runs WITHOUT a backend server in production.
+Frontend → Vercel (free). Database → Supabase (free).
+
+  STEP 1 — Set up Supabase tables (one time)
+  -------------------------------------------
+  1. Open Supabase Dashboard > SQL Editor
+  2. Paste the contents of  supabase-setup.sql
+  3. Click "Run"
+  This creates: sensor_readings, flood_predictions, alerts tables
+  and enables Realtime subscriptions.
+
+  STEP 2 — Enable Supabase Cron (optional, for simulated data)
+  -------------------------------------------
+  1. Supabase Dashboard > Database > Extensions
+  2. Search "pg_cron" and enable it
+  3. Go back to SQL Editor, run:
+     select cron.schedule('sensor-simulator', '5 seconds', 'select public.simulate_sensor_tick()');
+     select cron.schedule('cleanup-old-data', '0 3 * * *', 'select public.cleanup_old_data()');
+  This generates simulated sensor data every 5s without any backend.
+
+  STEP 3 — Deploy frontend to Vercel
+  -------------------------------------------
+  1. Push to GitHub
+  2. Import repo in Vercel, set root directory: v0-flood-response-system
+  3. Add environment variables in Vercel:
+       NEXT_PUBLIC_SUPABASE_URL      = (from Supabase dashboard)
+       NEXT_PUBLIC_SUPABASE_ANON_KEY = (from Supabase dashboard)
+  4. Deploy
+
+  STEP 4 — (Optional) Export ML model to ONNX
+  -------------------------------------------
+  If you want ML predictions in production (not just rule-based):
+  1. cd Rapid-Relay-Pre-Prototype-main/flood_preprototype
+  2. pip install xgboost onnxmltools skl2onnx onnxruntime
+  3. python scripts/export_onnx.py
+  4. This copies the ONNX model to v0-flood-response-system/public/models/
+  5. npm install onnxruntime-node  (in v0-flood-response-system/)
+  6. Redeploy to Vercel
+  The API route at /api/predict will auto-detect the model.
+
+
+═══════ LORAWAN HARDWARE (RPi + Sensors) ═══════
+
+When real sensors are connected via ChirpStack:
+
+  STEP 1 — Start ChirpStack on the Raspberry Pi
+  cd Rapid-Relay-Pre-Prototype-main/chirpstack
+  docker-compose up -d
+
+  STEP 2 — Start MQTT Bridge (same RPi)
+  pip install paho-mqtt supabase python-dotenv
+  python mqtt_bridge.py
+
+  The bridge listens to ChirpStack MQTT uplinks and writes directly
+  to Supabase. No FastAPI backend needed. The frontend picks up data
+  via Supabase Realtime subscriptions automatically.
+
+
+═══════ HOW DATA FLOWS ═══════
+
+  Local dev:
+    Simulator → FastAPI → WebSocket → Frontend
+                       → Supabase (fire-and-forget)
+
+  Deployed (no backend):
+    Supabase Cron simulator → sensor_readings table
+    Frontend subscribes via Supabase Realtime
+
+  Production (real sensors):
+    Sensors → LoRaWAN → ChirpStack → MQTT → mqtt_bridge.py → Supabase
+    Frontend subscribes via Supabase Realtime
+
+
+═══════ COMMON PROBLEMS ═══════
+
+  Stuck on "RAPID RELAY — Initializing..."
+    -> Hard refresh: Ctrl+Shift+R
+    -> Wait 5 seconds — it auto-recovers
+    -> If Supabase is down, it skips to login
+
+  Port already in use
+    -> Run kill.bat first, then start.bat again
+
+  Frontend crashes with EPERM error (.next folder locked)
+    -> Run kill.bat (it cleans .next cache)
+
+  Backend won't start
+    -> Use "python -m uvicorn" NOT bare "uvicorn"
+    -> Check: python --version
+
+  "Module not found"
+    -> Backend:  cd backend && pip install -r requirements.txt
+    -> Frontend: cd v0-flood-response-system && npm install
+
+  Data tab shows 0 records
+    -> Make sure supabase-setup.sql was run in Supabase
+    -> Check that backend or cron simulator is writing data
+
+
+═══════ PORTS & URLS ═══════
+
+  Frontend:           http://localhost:3000
+  Backend:            http://localhost:8001
+  Backend API docs:   http://localhost:8001/docs
+  WebSocket:          ws://localhost:8001/api/ws
+  ChirpStack:         http://localhost:8080
+  MQTT Broker:        localhost:1883
+  Supabase Dashboard: https://supabase.com/dashboard
+
+LOGIN:
+  Use your Supabase credentials.
+
+=============================================

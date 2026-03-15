@@ -233,7 +233,6 @@ export const STORAGE_KEYS = {
   ALERTS: "rapidrelay_alerts",
   UNIT_PREFERENCE: "rapidrelay_unit",
   THEME: "theme",
-  AUTH: "rapid_relay_auth",
   NOTIFICATION_PERMISSION: "rapidrelay_notif_perm",
   SYSTEM_HEALTH: "rapidrelay_health",
   LAST_SENSOR_SNAPSHOT: "rapidrelay_last_snapshot",
