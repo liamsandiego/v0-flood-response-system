@@ -112,12 +112,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = useCallback(async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    // Try Supabase auth first
     const email = username.includes("@") ? username : `${username}@rapidrelay.local`
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      return { success: false, error: error.message }
+    if (!error) return { success: true }
+
+    // Fallback: demo/thesis credentials (works when Supabase Auth user doesn't exist)
+    if (
+      (username === "admin" && password === "admin123") ||
+      (username === "operator" && password === "operator123")
+    ) {
+      const role = username as UserRole
+      setUser({
+        id: `demo-${username}`,
+        email: `${username}@rapidrelay.local`,
+        username,
+        role: role === "operator" ? "operator" : "admin",
+        name: username === "admin" ? "Admin User" : "Operator User",
+      })
+      return { success: true }
     }
-    return { success: true }
+
+    return { success: false, error: error.message }
   }, [])
 
   const logout = useCallback(async () => {
