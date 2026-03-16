@@ -2,6 +2,25 @@
 
 @variant dark (&:is(.dark *));
 
+/* Mobile viewport: use dynamic viewport height to avoid browser chrome overlap */
+html, body {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Override Tailwind h-screen to use dvh on supporting browsers */
+.h-screen {
+  height: 100dvh !important;
+}
+.w-screen {
+  width: 100dvw !important;
+}
+
+/* Safe area insets for notched/pill-nav devices */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);

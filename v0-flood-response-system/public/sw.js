@@ -4,7 +4,7 @@
 // and network-first for API/data requests.
 // =============================================================================
 
-const CACHE_NAME = "rapidrelay-v2"
+const CACHE_NAME = "rapidrelay-v3"
 const OFFLINE_URL = "/"
 
 // Static assets to pre-cache on install

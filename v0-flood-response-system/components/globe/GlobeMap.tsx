@@ -193,7 +193,7 @@ export default function GlobeMap({
           type: "raster-dem",
           url: "mapbox://mapbox.mapbox-terrain-dem-v1",
           tileSize: 512,
-          maxzoom: 14,
+          maxzoom: 10,
         });
       }
       map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
@@ -432,7 +432,7 @@ export default function GlobeMap({
         maxPitch={85}
         onLoad={onLoad}
         onClick={onClick}
-        antialias
+        preserveDrawingBuffer
         attributionControl={false}
       >
         {/* ── Himawari satellite overlay (Zoom Earth pattern) ──
