@@ -645,8 +645,8 @@ export default function AppShell() {
         </div>
 
         {/* ═══════ MAIN CONTENT AREA ═══════ */}
-        {/* pb-16 on mobile = 64px clearance for fixed bottom nav */}
-        <div className="flex-1 overflow-hidden p-2 relative" style={{ paddingBottom: isTouch ? '72px' : undefined }}>
+        {/* pb-16 on mobile = 64px clearance for fixed bottom nav; pb-8 on desktop for footer */}
+        <div className="flex-1 overflow-hidden p-2 relative" style={{ paddingBottom: isTouch ? '72px' : '36px' }}>
 
           {/* ─── Non-map tabs: full-screen scrollable content ─── */}
           {activeTab !== "map" && (
@@ -862,11 +862,12 @@ export default function AppShell() {
         </button>
       )}
 
-      {/* ═══════ DESKTOP FOOTER STATUS BAR (lg+ only) ═══════ */}
+      {/* ═══════ DESKTOP FOOTER: STATUS + NAV (lg+ only) ═══════ */}
       {!isTouch && (
         <div className="hidden lg:block fixed bottom-0 left-0 right-0 z-[25] pointer-events-auto">
-          <GlassPanel className="mx-2 mb-2 px-4 py-1.5 flex items-center justify-between text-[11px] rounded-xl overflow-hidden">
-            <div className="flex items-center gap-4 min-w-0 overflow-hidden">
+          <GlassPanel className="mx-2 mb-2 px-3 py-1 flex items-center justify-between rounded-xl overflow-hidden">
+            {/* Left: status info */}
+            <div className="flex items-center gap-4 min-w-0 overflow-hidden text-[11px]">
               <div className="flex items-center gap-1.5">
                 <Radio className={`h-3 w-3 ${networkOnline ? "text-emerald-400" : "text-red-400"}`} />
                 <span className="text-white/60">
@@ -881,18 +882,53 @@ export default function AppShell() {
                 <Activity className="h-3 w-3" />
                 <span>Uptime: {uptimeStr}</span>
               </div>
+              <div className="text-white/40">
+                14.7094°N, 120.9358°E
+              </div>
             </div>
-            <div className="text-white/40">
-              14.7094°N, 120.9358°E
+            {/* Right: navigation tabs (inline horizontal) */}
+            <div className="flex items-center gap-0.5 shrink-0">
+              {TABS.map((tab) => {
+                const isActive = activeTab === tab.id
+                const isDisabled = tab.id === "controls" && user?.role === "viewer"
+                return (
+                  <button
+                    key={tab.id}
+                    disabled={isDisabled}
+                    onClick={() => {
+                      if (!isDisabled) {
+                        setActiveTab(tab.id)
+                      }
+                    }}
+                    className={`
+                      flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all
+                      ${isActive
+                        ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+                        : "text-white/50 hover:text-white/80 hover:bg-white/5"
+                      }
+                      ${isDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}
+                    `}
+                  >
+                    {tab.icon}
+                    <span>{tab.label}</span>
+                    {tab.id === "history" && unackCritical > 0 && (
+                      <span className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] text-white font-bold">
+                        {unackCritical}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </GlassPanel>
         </div>
       )}
 
-      {/* ═══════ FIXED BOTTOM NAVIGATION BAR ═══════ */}
-      {/* h-16 = 64px — guaranteed tap height on mobile. Fixed to viewport. */}
+      {/* ═══════ MOBILE FIXED BOTTOM NAVIGATION BAR ═══════ */}
+      {/* h-16 = 64px — guaranteed tap height on mobile. Hidden on lg+ (desktop uses inline footer nav). */}
+      {isTouch && (
       <nav
-        className="fixed bottom-0 left-0 right-0 z-[25] pointer-events-auto"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-[25] pointer-events-auto"
         style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
         <div className="backdrop-blur-xl bg-slate-900/90 border-t border-white/10 flex items-stretch h-16">
@@ -919,7 +955,6 @@ export default function AppShell() {
                   ${isDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}
                 `}
               >
-                {/* Active indicator bar at top */}
                 {isActive && (
                   <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-cyan-400" />
                 )}
@@ -937,6 +972,7 @@ export default function AppShell() {
           })}
         </div>
       </nav>
+      )}
 
       {/* ═══════ Z-30: MOBILE LAYERS MODAL ═══════ */}
       {mobileLayersOpen && (
