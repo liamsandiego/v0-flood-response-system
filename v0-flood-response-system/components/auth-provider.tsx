@@ -112,11 +112,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = useCallback(async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    // Try Supabase auth first (wrapped in try-catch to avoid lock errors)
+    // Try Supabase auth first with a 3s timeout (can hang due to lock issues)
     try {
       const email = username.includes("@") ? username : `${username}@rapidrelay.local`
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (!error) return { success: true }
+      const result = await Promise.race([
+        supabase.auth.signInWithPassword({ email, password }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+      ])
+      if (result && "error" in result && !result.error) return { success: true }
     } catch {
       // Supabase auth unavailable — continue to demo fallback
     }
