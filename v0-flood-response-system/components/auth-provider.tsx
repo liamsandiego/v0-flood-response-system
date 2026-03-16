@@ -48,24 +48,32 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-async function fetchProfile(authUser: SupabaseUser): Promise<User | null> {
-  const { data, error } = await supabase
+async function fetchProfile(authUser: SupabaseUser): Promise<User> {
+  // Try to fetch from profiles table
+  const { data } = await supabase
     .from("profiles")
     .select("username, full_name, role")
     .eq("id", authUser.id)
     .single()
 
-  if (error || !data) {
-    console.error("[Auth] Failed to fetch profile:", error?.message)
-    return null
+  if (data) {
+    return {
+      id: authUser.id,
+      email: authUser.email ?? "",
+      username: data.username,
+      role: data.role as UserRole,
+      name: data.full_name || data.username,
+    }
   }
 
+  // No profiles table or no row — use auth user data directly
+  const emailName = (authUser.email ?? "user").split("@")[0]
   return {
     id: authUser.id,
     email: authUser.email ?? "",
-    username: data.username,
-    role: data.role as UserRole,
-    name: data.full_name || data.username,
+    username: emailName,
+    role: "admin" as UserRole,
+    name: emailName,
   }
 }
 
@@ -112,38 +120,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = useCallback(async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    // Try Supabase auth first with a 3s timeout (can hang due to lock issues)
-    try {
-      const email = username.includes("@") ? username : `${username}@rapidrelay.local`
-      const result = await Promise.race([
-        supabase.auth.signInWithPassword({ email, password }),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
-      ])
-      if (result && "error" in result && !result.error) return { success: true }
-    } catch {
-      // Supabase auth unavailable — continue to demo fallback
-    }
-
-    // Demo login — thesis project, no real user management needed
-    const accounts: Record<string, { password: string; role: UserRole; name: string }> = {
-      admin: { password: "admin123", role: "admin", name: "Admin User" },
-      operator: { password: "operator123", role: "operator", name: "Operator User" },
-    }
-    // Strip @rapidrelay.local if browser autofilled the email form
-    const key = username.replace(/@rapidrelay\.local$/, "")
-    const acct = accounts[key]
-    if (acct && password === acct.password) {
-      setUser({
-        id: `demo-${key}`,
-        email: `${key}@rapidrelay.local`,
-        username: key,
-        role: acct.role,
-        name: acct.name,
-      })
-      return { success: true }
-    }
-
-    return { success: false, error: "Invalid username or password" }
+    const email = username.includes("@") ? username : `${username}@rapidrelay.local`
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) return { success: false, error: error.message }
+    return { success: true }
   }, [])
 
   const logout = useCallback(async () => {
