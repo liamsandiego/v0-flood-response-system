@@ -928,7 +928,7 @@ export default function AppShell() {
       {/* h-16 = 64px — guaranteed tap height on mobile. Hidden on lg+ (desktop uses inline footer nav). */}
       {isTouch && (
       <nav
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-[25] pointer-events-auto"
+        className="fixed bottom-0 left-0 right-0 z-[25] pointer-events-auto"
         style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
         <div className="backdrop-blur-xl bg-slate-900/90 border-t border-white/10 flex items-stretch h-16">
@@ -976,7 +976,7 @@ export default function AppShell() {
 
       {/* ═══════ Z-30: MOBILE LAYERS MODAL ═══════ */}
       {mobileLayersOpen && (
-        <div className="lg:hidden fixed inset-0 z-30 flex flex-col">
+        <div className="fixed inset-0 z-30 flex flex-col">
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"

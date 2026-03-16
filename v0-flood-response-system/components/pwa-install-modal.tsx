@@ -7,9 +7,10 @@
 // =============================================================================
 
 import { useState, useEffect } from "react"
-import { X, Download, Smartphone, Chrome, MoreVertical, Share, Plus, CheckCircle } from "lucide-react"
+import { createPortal } from "react-dom"
+import { X, Download, Smartphone } from "lucide-react"
 
-type Browser = "chrome-android" | "samsung" | "firefox-android" | "safari-ios" | "edge-android" | "other"
+type Browser = "chrome-android" | "samsung" | "firefox-android" | "safari-ios" | "edge" | "chrome-desktop" | "other"
 
 function detectBrowser(): Browser {
   if (typeof navigator === "undefined") return "other"
@@ -18,8 +19,10 @@ function detectBrowser(): Browser {
   if (/SamsungBrowser/i.test(ua)) return "samsung"
   if (/Firefox/i.test(ua) && /Android/i.test(ua)) return "firefox-android"
   if (/iPhone|iPad|iPod/i.test(ua) && /Safari/i.test(ua)) return "safari-ios"
-  if (/Edg/i.test(ua) && /Android/i.test(ua)) return "edge-android"
+  // Edge on any platform (Android, Windows tablet, desktop)
+  if (/Edg\//i.test(ua)) return "edge"
   if (/Chrome/i.test(ua) && /Android/i.test(ua)) return "chrome-android"
+  if (/Chrome/i.test(ua)) return "chrome-desktop"
   return "other"
 }
 
@@ -27,7 +30,7 @@ const INSTRUCTIONS: Record<Browser, { title: string; steps: string[] }> = {
   "chrome-android": {
     title: "Install on Chrome (Android)",
     steps: [
-      "Tap the ⋮ menu (three dots) in the top-right corner",
+      "Tap the \u22ee menu (three dots) in the top-right corner",
       'Tap "Add to Home screen" or "Install app"',
       'Tap "Add" to confirm',
       "RapidRelay will appear on your home screen",
@@ -36,7 +39,7 @@ const INSTRUCTIONS: Record<Browser, { title: string; steps: string[] }> = {
   samsung: {
     title: "Install on Samsung Internet",
     steps: [
-      "Tap the ≡ menu (three lines) at the bottom right",
+      "Tap the \u2261 menu (three lines) at the bottom right",
       'Tap "Add page to" then "Home screen"',
       'Tap "Add" to confirm',
       "RapidRelay will appear on your home screen",
@@ -45,7 +48,7 @@ const INSTRUCTIONS: Record<Browser, { title: string; steps: string[] }> = {
   "firefox-android": {
     title: "Install on Firefox (Android)",
     steps: [
-      "Tap the ⋮ menu (three dots) in the top-right corner",
+      "Tap the \u22ee menu (three dots) in the top-right corner",
       'Tap "Install" or "Add to Home Screen"',
       'Tap "Add" to confirm',
       "RapidRelay will appear on your home screen",
@@ -54,25 +57,33 @@ const INSTRUCTIONS: Record<Browser, { title: string; steps: string[] }> = {
   "safari-ios": {
     title: "Install on Safari (iPhone/iPad)",
     steps: [
-      "Tap the Share button (□ with ↑ arrow) at the bottom of Safari",
+      "Tap the Share button (\u25a1 with \u2191 arrow) at the bottom of Safari",
       'Scroll down and tap "Add to Home Screen"',
       'Edit the name if you like, then tap "Add"',
       "RapidRelay will appear on your home screen",
     ],
   },
-  "edge-android": {
-    title: "Install on Edge (Android)",
+  edge: {
+    title: "Install on Microsoft Edge",
     steps: [
-      "Tap the ⋯ menu (three dots) at the bottom",
-      'Tap "Add to phone" or "Install app"',
+      'Tap the \u22ef menu (three dots) at the bottom or top of Edge',
+      'Tap "Apps" or "Add to phone" or "Install this site as an app"',
       'Tap "Install" to confirm',
-      "RapidRelay will appear on your home screen",
+      "RapidRelay will appear on your home screen or Start menu",
+    ],
+  },
+  "chrome-desktop": {
+    title: "Install on Chrome (Desktop)",
+    steps: [
+      'Click the install icon (\u2b73) in the address bar, or click \u22ee menu > "Install RapidRelay"',
+      'Click "Install" to confirm',
+      "RapidRelay will open as a standalone app window",
     ],
   },
   other: {
     title: "Add to Home Screen",
     steps: [
-      "Open your browser's menu (⋮ or ≡)",
+      "Open your browser's menu (\u22ee or \u2261)",
       'Look for "Add to Home Screen", "Install App", or similar',
       "Follow the prompts to install",
       "Note: App must be on HTTPS to install",
@@ -103,7 +114,7 @@ export function PwaInstallModal({
 
   const { title, steps } = INSTRUCTIONS[browser]
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center"
       onClick={onClose}
@@ -189,6 +200,7 @@ export function PwaInstallModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
