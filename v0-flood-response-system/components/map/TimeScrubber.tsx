@@ -65,14 +65,14 @@ export function TimeScrubber({
       </div>
 
       {/* Slider + step buttons */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         {onStepBack && (
           <button
             onClick={onStepBack}
-            className="p-0.5 rounded hover:bg-muted transition-colors"
+            className="p-2.5 rounded hover:bg-muted transition-colors"
             title="Step back"
           >
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <ChevronLeft className="h-4 w-4" />
           </button>
         )}
 
@@ -83,13 +83,13 @@ export function TimeScrubber({
             max={totalFrames - 1}
             value={currentIndex}
             onChange={(e) => onIndexChange(Number(e.target.value))}
-            className={`w-full h-2 cursor-pointer ${accentClass}`}
+            className={`w-full h-3 cursor-pointer ${accentClass}`}
             style={{ touchAction: "none" }} // better mobile UX
           />
           {/* Now marker on the slider track */}
           {nowIndex >= 0 && totalFrames > 1 && (
             <div
-              className="absolute top-0 w-0.5 h-2 bg-white/60 pointer-events-none"
+              className="absolute top-0 w-0.5 h-3 bg-white/60 pointer-events-none"
               style={{ left: `${(nowIndex / (totalFrames - 1)) * 100}%` }}
             />
           )}
@@ -98,14 +98,14 @@ export function TimeScrubber({
         {onStepForward && (
           <button
             onClick={onStepForward}
-            className="p-0.5 rounded hover:bg-muted transition-colors"
+            className="p-2.5 rounded hover:bg-muted transition-colors"
             title="Step forward"
           >
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="h-4 w-4" />
           </button>
         )}
 
-        <span className="text-[10px] font-mono text-muted-foreground w-10 text-right shrink-0">
+        <span className="text-xs font-mono text-muted-foreground w-10 text-right shrink-0">
           {currentIndex + 1}/{totalFrames}
         </span>
       </div>

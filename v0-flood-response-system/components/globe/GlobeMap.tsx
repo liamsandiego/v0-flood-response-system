@@ -11,6 +11,7 @@
 
 "use client";
 
+import React from "react";
 import { useRef, useCallback, useEffect, useState, useMemo } from "react";
 import Map, {
   Source,
@@ -24,6 +25,49 @@ import type { MapLayerConfig } from "@/lib/map-types";
 import type { HimawariFrame } from "@/hooks/use-himawari";
 import { getFloodExtent, fetchFloodExtent } from "@/lib/sentinel-mock-data";
 import "mapbox-gl/dist/mapbox-gl.css";
+
+// ---------------------------------------------------------------------------
+// Error boundary — catches WebGL crashes on tablets and shows retry fallback
+// ---------------------------------------------------------------------------
+interface MapErrorBoundaryState { hasError: boolean }
+
+export class MapErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  MapErrorBoundaryState
+> {
+  state: MapErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): MapErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error("[GlobeMap] Rendering crashed:", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="absolute inset-0 bg-slate-950 flex items-center justify-center">
+          <div className="text-center space-y-4 p-8">
+            <div className="text-4xl">&#x26A0;</div>
+            <h2 className="text-lg font-mono text-white/80">Map rendering failed</h2>
+            <p className="text-sm text-white/50 max-w-md font-mono">
+              Your device may not support 3D map rendering. Try reloading.
+            </p>
+            <button
+              onClick={() => this.setState({ hasError: false })}
+              className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-500 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Config
@@ -122,6 +166,8 @@ interface GlobeMapProps {
   rainViewerTileUrls?: string[];
   /** Which RainViewer frame is currently visible */
   rainViewerActiveIndex?: number;
+  /** Touch device — disable terrain/globe for GPU performance */
+  isTouch?: boolean;
 }
 
 export default function GlobeMap({
@@ -131,6 +177,7 @@ export default function GlobeMap({
   himawariMaxZoom,
   rainViewerTileUrls,
   rainViewerActiveIndex,
+  isTouch = false,
 }: GlobeMapProps) {
   const mapRef = useRef<MapRef>(null);
   const sensorData = useFloodStore((s) => s.sensorData);
@@ -138,6 +185,9 @@ export default function GlobeMap({
   const [mapLoaded, setMapLoaded] = useState(false);
   const [styleReady, setStyleReady] = useState(false);
   const [mapStyleLocal, setMapStyleLocal] = useState("dark");
+
+  // Edge browser detection — reduce GPU features to prevent glitches
+  const isEdge = typeof navigator !== "undefined" && /Edg\//.test(navigator.userAgent);
 
   const mapStyle = layerConfig ? layerConfig.baseMap : mapStyleLocal;
 
@@ -187,28 +237,64 @@ export default function GlobeMap({
 
   // ── Setup terrain + fog helper ──
   const setupTerrainAndFog = useCallback((map: mapboxgl.Map) => {
-    try {
-      if (!map.getSource("mapbox-dem")) {
-        map.addSource("mapbox-dem", {
-          type: "raster-dem",
-          url: "mapbox://mapbox.mapbox-terrain-dem-v1",
-          tileSize: 512,
-          maxzoom: 10,
+    // Skip terrain on touch devices — DEM tile fetching + 3D mesh rendering
+    // is the biggest GPU drain and causes crashes on tablet browsers
+    if (!isTouch) {
+      try {
+        if (!map.getSource("mapbox-dem")) {
+          map.addSource("mapbox-dem", {
+            type: "raster-dem",
+            url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+            tileSize: 512,
+            maxzoom: isEdge ? 8 : 10, // Reduce on Edge to prevent glitches
+          });
+        }
+        map.setTerrain({
+          source: "mapbox-dem",
+          exaggeration: isEdge ? 1.0 : 1.5, // Lower on Edge for stability
         });
+      } catch (e) {
+        // Terrain may already exist after hot reload
       }
-      map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
-    } catch (e) {
-      // Terrain may already exist after hot reload
     }
 
-    map.setFog({
-      color: "rgb(10, 10, 25)",
-      "high-color": "rgb(20, 20, 60)",
-      "horizon-blend": 0.08,
-      "space-color": "rgb(5, 5, 15)",
-      "star-intensity": 0.6,
-    });
-  }, []);
+    // Simplified fog on touch devices to reduce GPU load
+    if (isTouch) {
+      map.setFog({
+        color: "rgb(10, 10, 25)",
+        "high-color": "rgb(20, 20, 60)",
+        "horizon-blend": 0.02,
+        "space-color": "rgb(5, 5, 15)",
+        "star-intensity": 0.2,
+      });
+    } else {
+      map.setFog({
+        color: "rgb(10, 10, 25)",
+        "high-color": "rgb(20, 20, 60)",
+        "horizon-blend": 0.08,
+        "space-color": "rgb(5, 5, 15)",
+        "star-intensity": 0.6,
+      });
+    }
+  }, [isTouch, isEdge]);
+
+  // ── Visibility change handler — pause rendering when tab hidden ──
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        // Reduce frame rate to ~1 FPS when hidden — saves GPU memory on mobile
+        try {
+          map.triggerRepaint();
+        } catch { /* ok */ }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [mapLoaded]);
 
   const onLoad = useCallback(() => {
     const map = mapRef.current?.getMap();
@@ -218,9 +304,6 @@ export default function GlobeMap({
     setStyleReady(true);
 
     // Suppress noisy tile-fetch errors from RainViewer / Himawari in the console.
-    // Mapbox fires "error" events for every 404 tile. Without this, the console
-    // fills with hundreds of "Failed to fetch" messages for tiles outside radar
-    // coverage, which is expected & harmless.
     map.on("error", (e) => {
       const msg = e.error?.message ?? "";
       if (
@@ -231,15 +314,33 @@ export default function GlobeMap({
         msg.includes("status: 404") ||
         msg.includes("status: 408")
       ) {
-        // Silently swallow expected tile errors
         return;
       }
-      // Let other map errors through
       console.warn("[GlobeMap] Map error:", e.error);
     });
 
-    console.log("[GlobeMap] Map loaded, sensors:", sensorData.features.length);
-  }, [setupTerrainAndFog, sensorData.features.length]);
+    // ── Touch stability: disable rotation on mobile (prevents gesture conflicts) ──
+    if (isTouch) {
+      try {
+        map.touchZoomRotate.disableRotation();
+      } catch { /* ok if not supported */ }
+    }
+
+    // ── WebGL context lost handler ──
+    const canvas = map.getCanvas();
+    const handleContextLost = (e: Event) => {
+      console.error("[GlobeMap] WebGL context lost");
+      e.preventDefault(); // Allow recovery attempt
+    };
+    const handleContextRestored = () => {
+      console.log("[GlobeMap] WebGL context restored, re-rendering");
+      map.triggerRepaint();
+    };
+    canvas.addEventListener("webglcontextlost", handleContextLost);
+    canvas.addEventListener("webglcontextrestored", handleContextRestored);
+
+    console.log("[GlobeMap] Map loaded, sensors:", sensorData.features.length, isEdge ? "(Edge mode)" : "");
+  }, [setupTerrainAndFog, sensorData.features.length, isTouch, isEdge]);
 
   // Re-apply terrain + fog after style swap (Mapbox removes custom sources)
   const prevStyleRef = useRef(mapStyle);
@@ -428,11 +529,12 @@ export default function GlobeMap({
         initialViewState={INITIAL_VIEW}
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
         mapStyle={(MAP_STYLES[mapStyle] ?? MAP_STYLES.dark).url}
-        projection={{ name: "globe" }}
-        maxPitch={85}
+        projection={{ name: isTouch ? "mercator" : "globe" }}
+        maxPitch={isTouch ? 60 : 85}
         onLoad={onLoad}
         onClick={onClick}
-        preserveDrawingBuffer
+        {...(!isTouch && !isEdge && { preserveDrawingBuffer: true })}
+        {...((isTouch || isEdge) && { maxTileCacheSize: 50 })}
         attributionControl={false}
       >
         {/* ── Himawari satellite overlay (Zoom Earth pattern) ──

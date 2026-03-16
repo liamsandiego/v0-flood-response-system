@@ -18,6 +18,7 @@ import dynamic from "next/dynamic"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ErrorBoundary } from "@/components/error-boundary"
+import { MapErrorBoundary } from "@/components/globe/GlobeMap"
 import AIInterpretationPanel from "@/components/panels/AIInterpretationPanel"
 import { SensorGraphs } from "@/components/sensor-graphs"
 import { EvacuationTips } from "@/components/evacuation-tips"
@@ -115,13 +116,13 @@ function GlassCard({
 // =============================================================================
 type TabId = "map" | "safety" | "history" | "broadcasts" | "data" | "controls"
 
-const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
-  { id: "map", label: "Map", icon: <MapIcon className="h-5 w-5 lg:h-4 lg:w-4" /> },
-  { id: "safety", label: "Safety", icon: <Shield className="h-5 w-5 lg:h-4 lg:w-4" /> },
-  { id: "history", label: "History", icon: <History className="h-5 w-5 lg:h-4 lg:w-4" /> },
-  { id: "broadcasts", label: "Broadcasts", icon: <Megaphone className="h-5 w-5 lg:h-4 lg:w-4" /> },
-  { id: "data", label: "Data", icon: <Database className="h-5 w-5 lg:h-4 lg:w-4" /> },
-  { id: "controls", label: "Controls", icon: <Settings className="h-5 w-5 lg:h-4 lg:w-4" /> },
+const TABS: { id: TabId; label: string; icon: React.ReactNode; iconTouch: React.ReactNode }[] = [
+  { id: "map", label: "Map", icon: <MapIcon className="h-4 w-4" />, iconTouch: <MapIcon className="h-6 w-6" /> },
+  { id: "safety", label: "Safety", icon: <Shield className="h-4 w-4" />, iconTouch: <Shield className="h-6 w-6" /> },
+  { id: "history", label: "History", icon: <History className="h-4 w-4" />, iconTouch: <History className="h-6 w-6" /> },
+  { id: "broadcasts", label: "Alerts", icon: <Megaphone className="h-4 w-4" />, iconTouch: <Megaphone className="h-6 w-6" /> },
+  { id: "data", label: "Data", icon: <Database className="h-4 w-4" />, iconTouch: <Database className="h-6 w-6" /> },
+  { id: "controls", label: "Controls", icon: <Settings className="h-4 w-4" />, iconTouch: <Settings className="h-6 w-6" /> },
 ]
 
 // =============================================================================
@@ -160,6 +161,13 @@ export default function AppShell() {
   // Mobile-specific state
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false)
   const [mobileLayersOpen, setMobileLayersOpen] = useState(false)
+
+  // Touch device detection — forces mobile layout on all touch devices
+  // regardless of screen width (tablets in landscape are often >1024px)
+  const [isTouch, setIsTouch] = useState(false)
+  useEffect(() => {
+    setIsTouch(navigator.maxTouchPoints > 0 || 'ontouchstart' in window)
+  }, [])
 
   const startTime = useRef(Date.now())
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -546,14 +554,17 @@ export default function AppShell() {
 
       {/* ── Z-0: Globe Background ── */}
       <div className="absolute inset-0 z-0">
-        <GlobeMap
-          layerConfig={layers}
-          himawariFrames={himawari.frames}
-          himawariActiveIndex={himawari.activeIndex}
-          himawariMaxZoom={himawari.maxZoom}
-          rainViewerTileUrls={rainViewerTileUrls}
-          rainViewerActiveIndex={rainViewer.currentFrameIndex}
-        />
+        <MapErrorBoundary>
+          <GlobeMap
+            isTouch={isTouch}
+            layerConfig={layers}
+            himawariFrames={himawari.frames}
+            himawariActiveIndex={himawari.activeIndex}
+            himawariMaxZoom={himawari.maxZoom}
+            rainViewerTileUrls={rainViewerTileUrls}
+            rainViewerActiveIndex={rainViewer.currentFrameIndex}
+          />
+        </MapErrorBoundary>
       </div>
 
       {/* ── Z-20: Critical overlay ── */}
@@ -591,23 +602,29 @@ export default function AppShell() {
                   wsStatus === "connecting" ? "bg-yellow-400 animate-pulse" :
                   "bg-red-400"
                 }`} />
-                <span className="text-[10px] text-white/50 hidden lg:inline">
-                  {wsStatus === "connected" ? "LIVE" : wsStatus.toUpperCase()}
-                </span>
+                {!isTouch && (
+                  <span className="text-[10px] text-white/50 hidden lg:inline">
+                    {wsStatus === "connected" ? "LIVE" : wsStatus.toUpperCase()}
+                  </span>
+                )}
               </div>
               {/* User info — desktop only */}
-              <div className="hidden lg:flex items-center gap-1.5 ml-2">
-                <User className="h-3.5 w-3.5 text-white/60" />
-                <span className="text-xs text-white/80 hidden sm:inline">{user?.name}</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 font-bold uppercase">
-                  {user?.role}
-                </span>
-              </div>
+              {!isTouch && (
+                <div className="hidden lg:flex items-center gap-1.5 ml-2">
+                  <User className="h-3.5 w-3.5 text-white/60" />
+                  <span className="text-xs text-white/80 hidden sm:inline">{user?.name}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 font-bold uppercase">
+                    {user?.role}
+                  </span>
+                </div>
+              )}
               {/* PWA + Notification — desktop only */}
-              <div className="hidden lg:flex items-center gap-1">
-                <PwaInstallButton />
-                <NotificationButton />
-              </div>
+              {!isTouch && (
+                <div className="hidden lg:flex items-center gap-1">
+                  <PwaInstallButton />
+                  <NotificationButton />
+                </div>
+              )}
               {/* Alert badge — always visible */}
               <Badge className={`${getStatusColor(overallStatus)} text-[10px] lg:text-[10px] px-2 py-0.5`}>
                 {getStatusText(overallStatus)}
@@ -616,10 +633,10 @@ export default function AppShell() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-white/60 hover:text-white hover:bg-white/10 h-8 lg:h-7 px-2"
+                className={`text-white/60 hover:text-white hover:bg-white/10 px-2 ${isTouch ? "h-9" : "h-8 lg:h-7"}`}
                 onClick={logout}
               >
-                <LogOut className="h-4 w-4 lg:h-3.5 lg:w-3.5" />
+                <LogOut className={isTouch ? "h-5 w-5" : "h-4 w-4 lg:h-3.5 lg:w-3.5"} />
               </Button>
             </div>
           </GlassPanel>
@@ -673,7 +690,7 @@ export default function AppShell() {
                         You do not have permission to access alert controls.
                       </div>
                     ) : (
-                      <div className="dark glass-dark grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div className={`dark glass-dark grid gap-4 ${isTouch ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2"}`}>
                         <AlertControls
                           currentStatus={overallStatus}
                           userRole={user?.role ?? "viewer"}
@@ -691,7 +708,7 @@ export default function AppShell() {
           {/* ═══ Map tab: Draggable floating panels (desktop) ═══ */}
 
           {/* LEFT — Sensor Status */}
-          {activeTab === "map" && leftPanelOpen && (
+          {activeTab === "map" && leftPanelOpen && !isTouch && (
             <FloatingPanel
               title="Sensor Status"
               icon={<ShieldAlert className="h-3.5 w-3.5 text-red-400" />}
@@ -705,7 +722,7 @@ export default function AppShell() {
           )}
 
           {/* Toggle: reopen left panel */}
-          {activeTab === "map" && !leftPanelOpen && (
+          {activeTab === "map" && !leftPanelOpen && !isTouch && (
             <button
               className="hidden lg:flex pointer-events-auto absolute top-1 left-0 items-center gap-1.5 px-2 py-1.5 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-r-lg border border-white/10 border-l-0 z-[1]"
               onClick={() => setLeftPanelOpen(true)}
@@ -715,7 +732,7 @@ export default function AppShell() {
           )}
 
           {/* RIGHT — Map Layers */}
-          {activeTab === "map" && rightPanelOpen && (
+          {activeTab === "map" && rightPanelOpen && !isTouch && (
             <FloatingPanel
               title="Map Layers"
               icon={<Layers className="h-3.5 w-3.5 text-cyan-400" />}
@@ -731,7 +748,7 @@ export default function AppShell() {
           )}
 
           {/* Toggle: reopen right panel */}
-          {activeTab === "map" && !rightPanelOpen && (
+          {activeTab === "map" && !rightPanelOpen && !isTouch && (
             <button
               className="hidden lg:flex pointer-events-auto absolute top-1 right-0 items-center gap-1.5 px-2 py-1.5 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-l-lg border border-white/10 border-r-0 z-[1]"
               onClick={() => setRightPanelOpen(true)}
@@ -741,7 +758,7 @@ export default function AppShell() {
           )}
 
           {/* BOTTOM — Live Trends */}
-          {activeTab === "map" && bottomPanelOpen && (
+          {activeTab === "map" && bottomPanelOpen && !isTouch && (
             <FloatingPanel
               title="Live Sensor Trends"
               icon={<TrendingUp className="h-3.5 w-3.5 text-blue-400" />}
@@ -757,7 +774,7 @@ export default function AppShell() {
           )}
 
           {/* Toggle: reopen bottom panel */}
-          {activeTab === "map" && !bottomPanelOpen && (
+          {activeTab === "map" && !bottomPanelOpen && !isTouch && (
             <button
               className="hidden lg:block pointer-events-auto absolute bottom-0 left-1/2 -translate-x-1/2 px-3 py-1 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-t-lg border border-white/10 border-b-0 z-[1]"
               onClick={() => setBottomPanelOpen(true)}
@@ -768,42 +785,46 @@ export default function AppShell() {
         </div>
 
         {/* ═══════ MOBILE: Floating Metrics Bar (Map tab only) ═══════ */}
-        {activeTab === "map" && snapshot && (
-          <div className="lg:hidden pointer-events-auto px-2 -mt-1">
+        {activeTab === "map" && snapshot && isTouch && (
+          <div className="pointer-events-auto px-2 -mt-1">
             <button
               onClick={() => setMobileSheetOpen(!mobileSheetOpen)}
-              className="w-full backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-lg px-4 py-3 flex items-center justify-between"
+              className="w-full backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-lg px-4 py-4 flex items-center justify-between"
             >
-              <div className="flex items-center gap-4 text-xs overflow-x-auto">
-                <span className="flex items-center gap-1.5 text-blue-300 shrink-0">
-                  <Waves className="h-4 w-4" />
-                  {snapshot.waterLevel.effectiveValue.toFixed(2)}m
+              <div className="flex items-center gap-5 text-sm overflow-x-auto">
+                <span className="flex items-center gap-2 text-blue-300 shrink-0">
+                  <Waves className="h-5 w-5" />
+                  <span className="font-semibold">{snapshot.waterLevel.effectiveValue.toFixed(2)}m</span>
                 </span>
-                <span className="flex items-center gap-1.5 text-cyan-300 shrink-0">
-                  <CloudRain className="h-4 w-4" />
-                  {snapshot.rainfall.toFixed(1)}mm
+                <span className="flex items-center gap-2 text-cyan-300 shrink-0">
+                  <CloudRain className="h-5 w-5" />
+                  <span className="font-semibold">{snapshot.rainfall.toFixed(1)}mm</span>
                 </span>
-                <span className={`flex items-center gap-1.5 shrink-0 ${
+                <span className={`flex items-center gap-2 shrink-0 ${
                   snapshot.risk > 0.8 ? "text-red-400" :
                   snapshot.risk > 0.5 ? "text-orange-400" :
                   "text-emerald-400"
                 }`}>
-                  <AlertOctagon className="h-4 w-4" />
-                  {(snapshot.risk * 100).toFixed(0)}%
+                  <AlertOctagon className="h-5 w-5" />
+                  <span className="font-semibold">{(snapshot.risk * 100).toFixed(0)}%</span>
                 </span>
-                <span className="flex items-center gap-1.5 text-teal-300 shrink-0">
-                  <ThermometerSun className="h-4 w-4" />
-                  {snapshot.humidity.effectiveValue.toFixed(0)}%
+                <span className="flex items-center gap-2 text-teal-300 shrink-0">
+                  <ThermometerSun className="h-5 w-5" />
+                  <span className="font-semibold">{snapshot.humidity.effectiveValue.toFixed(0)}%</span>
                 </span>
               </div>
-              <ChevronUp className={`h-5 w-5 text-white/40 shrink-0 ml-2 transition-transform ${mobileSheetOpen ? "rotate-180" : ""}`} />
+              <ChevronUp className={`h-6 w-6 text-white/40 shrink-0 ml-2 transition-transform ${mobileSheetOpen ? "rotate-180" : ""}`} />
             </button>
           </div>
         )}
 
         {/* ═══════ MOBILE: Bottom Sheet (expanded sensor data) ═══════ */}
-        {activeTab === "map" && mobileSheetOpen && (
-          <div className="lg:hidden pointer-events-auto flex-1 overflow-y-auto px-2 pb-1 scrollbar-thin">
+        {activeTab === "map" && mobileSheetOpen && isTouch && (
+          <div className="pointer-events-auto overflow-y-auto px-2 pb-1 scrollbar-thin" style={{ maxHeight: '70vh' }}>
+            {/* Grab bar indicator */}
+            <div className="flex justify-center py-1.5">
+              <div className="w-10 h-1 rounded-full bg-white/20" />
+            </div>
             <GlassPanel className="p-3 space-y-3">
               {renderSensorPanelContent()}
 
@@ -824,18 +845,19 @@ export default function AppShell() {
         )}
 
         {/* ═══════ MOBILE: Floating Action Buttons (Map tab only) ═══════ */}
-        {activeTab === "map" && !mobileSheetOpen && (
-          <div className="lg:hidden pointer-events-auto mt-auto mb-1 px-2 flex justify-end gap-2">
+        {activeTab === "map" && !mobileSheetOpen && isTouch && (
+          <div className="pointer-events-auto mt-auto mb-1 px-2 flex justify-end gap-2">
             <button
               onClick={() => setMobileLayersOpen(true)}
-              className="backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-full h-12 w-12 flex items-center justify-center text-white/70 hover:text-white shadow-lg"
+              className="backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-full h-14 w-14 flex items-center justify-center text-white/70 hover:text-white shadow-lg"
             >
-              <Layers className="h-5 w-5" />
+              <Layers className="h-6 w-6" />
             </button>
           </div>
         )}
 
         {/* ═══════ FOOTER STATUS BAR (Desktop only) ═══════ */}
+        {!isTouch && (
         <div className="hidden lg:block pointer-events-auto shrink-0">
           <GlassPanel className="mx-2 mb-0 px-4 py-1.5 flex items-center justify-between text-[11px] rounded-xl overflow-hidden">
             <div className="flex items-center gap-4 min-w-0 overflow-hidden">
@@ -859,6 +881,7 @@ export default function AppShell() {
             </div>
           </GlassPanel>
         </div>
+        )}
 
         {/* ═══════ BOTTOM NAVIGATION ═══════ */}
         <div className="pointer-events-auto shrink-0 safe-bottom">
@@ -878,7 +901,7 @@ export default function AppShell() {
                       }
                     }}
                     className={`
-                      flex flex-col lg:flex-row items-center gap-0.5 lg:gap-1.5 px-2 lg:px-3 py-2 lg:py-1.5 rounded-lg text-[10px] lg:text-xs font-medium transition-all min-w-[3rem] lg:min-w-0
+                      flex flex-col lg:flex-row items-center gap-1 lg:gap-1.5 px-3 lg:px-3 py-2.5 lg:py-1.5 rounded-lg text-xs lg:text-xs font-medium transition-all min-w-[48px] min-h-[48px] lg:min-h-0 lg:min-w-0
                       ${isActive
                         ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
                         : "text-white/50 hover:text-white/80 hover:bg-white/5"
@@ -886,10 +909,10 @@ export default function AppShell() {
                       ${isDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}
                     `}
                   >
-                    {tab.icon}
+                    {tab.iconTouch}
                     <span>{tab.label}</span>
                     {tab.id === "history" && unackCritical > 0 && (
-                      <span className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] text-white font-bold">
+                      <span className="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold">
                         {unackCritical}
                       </span>
                     )}
@@ -919,9 +942,9 @@ export default function AppShell() {
                 </h2>
                 <button
                   onClick={() => setMobileLayersOpen(false)}
-                  className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-white/10 text-white/60 hover:text-white"
+                  className="h-11 w-11 flex items-center justify-center rounded-full hover:bg-white/10 text-white/60 hover:text-white"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-5 w-5" />
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto scrollbar-thin p-3">

@@ -153,21 +153,21 @@ export function FloatingPanel({
             {title}
           </span>
         </div>
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={() => setMinimized(!minimized)}
-            className="h-5 w-5 flex items-center justify-center rounded hover:bg-white/10 text-white/30 hover:text-white transition-colors"
+            className="h-8 w-8 flex items-center justify-center rounded hover:bg-white/10 text-white/30 hover:text-white transition-colors"
             title={minimized ? "Expand" : "Minimize"}
           >
-            {minimized ? <Maximize2 className="h-2.5 w-2.5" /> : <Minus className="h-2.5 w-2.5" />}
+            {minimized ? <Maximize2 className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
           </button>
           {onClose && (
             <button
               onClick={onClose}
-              className="h-5 w-5 flex items-center justify-center rounded hover:bg-white/10 text-white/30 hover:text-white transition-colors"
+              className="h-8 w-8 flex items-center justify-center rounded hover:bg-white/10 text-white/30 hover:text-white transition-colors"
               title="Close"
             >
-              <X className="h-2.5 w-2.5" />
+              <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
@@ -183,11 +183,11 @@ export function FloatingPanel({
             onPointerDown={onResizePointerDown}
             onPointerMove={onResizePointerMove}
             onPointerUp={onResizePointerUp}
-            className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize touch-none z-10 group"
+            className="absolute bottom-0 right-0 w-8 h-8 cursor-se-resize touch-none z-10 group"
             title="Drag to resize"
           >
             <svg
-              className="w-3 h-3 absolute bottom-0.5 right-0.5 text-white/20 group-hover:text-white/50 transition-colors"
+              className="w-3.5 h-3.5 absolute bottom-1 right-1 text-white/20 group-hover:text-white/50 transition-colors"
               viewBox="0 0 10 10"
               fill="currentColor"
             >

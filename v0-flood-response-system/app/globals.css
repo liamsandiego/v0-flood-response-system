@@ -235,3 +235,62 @@ html, body {
   color: #e2e2e2;
   color-scheme: dark;
 }
+
+/* =============================================================================
+   MOBILE TOUCH-TARGET FIX — WCAG 2.5.5 (44×44px minimum)
+   Only applies on touch devices (pointer: coarse) so desktop layout is unaffected.
+   ============================================================================= */
+
+@media (pointer: coarse) {
+  /* All interactive elements: enforce 44px minimum touch target */
+  button,
+  [role="button"],
+  a.button,
+  input[type="submit"],
+  input[type="button"] {
+    min-height: 44px;
+    touch-action: manipulation; /* Prevents 300ms tap delay & double-tap zoom */
+  }
+
+  /* Range slider thumb — must be large enough to drag on mobile */
+  input[type="range"] {
+    min-height: 44px;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+  }
+
+  /* Checkboxes & radios */
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+  }
+
+  /* Form inputs: 16px minimum font-size prevents iOS auto-zoom on focus */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}

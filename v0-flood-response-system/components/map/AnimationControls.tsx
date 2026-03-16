@@ -51,60 +51,60 @@ export function AnimationControls({
   accentBorder = "border-cyan-500",
 }: AnimationControlsProps) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {/* Main transport controls */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         {onJumpBack && (
           <button
             onClick={onJumpBack}
-            className="flex items-center justify-center rounded border border-border px-1.5 py-1 hover:bg-muted transition-colors"
+            className="flex items-center justify-center rounded border border-border px-2 py-2 min-h-[44px] min-w-[44px] hover:bg-muted transition-colors"
             title="Jump back 1 hour"
           >
-            <ChevronsLeft className="h-3 w-3" />
+            <ChevronsLeft className="h-4 w-4" />
           </button>
         )}
 
         <button
           onClick={onPrev}
-          className="flex-1 flex items-center justify-center rounded border border-border px-1 py-1 hover:bg-muted transition-colors"
+          className="flex-1 flex items-center justify-center rounded border border-border px-2 py-2 min-h-[44px] hover:bg-muted transition-colors"
           title="Previous frame (−10 min)"
         >
-          <SkipBack className="h-3 w-3" />
+          <SkipBack className="h-4 w-4" />
         </button>
 
         <button
           onClick={onTogglePlay}
-          className={`flex-1 flex items-center justify-center rounded border px-1 py-1 transition-colors ${
+          className={`flex-1 flex items-center justify-center rounded border px-2 py-2 min-h-[44px] transition-colors ${
             playing
               ? `${accentBg} text-white ${accentBorder}`
               : "border-border hover:bg-muted"
           }`}
           title={playing ? "Pause" : "Play"}
         >
-          {playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+          {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </button>
 
         <button
           onClick={onNext}
-          className="flex-1 flex items-center justify-center rounded border border-border px-1 py-1 hover:bg-muted transition-colors"
+          className="flex-1 flex items-center justify-center rounded border border-border px-2 py-2 min-h-[44px] hover:bg-muted transition-colors"
           title="Next frame (+10 min)"
         >
-          <SkipForward className="h-3 w-3" />
+          <SkipForward className="h-4 w-4" />
         </button>
 
         {onJumpForward && (
           <button
             onClick={onJumpForward}
-            className="flex items-center justify-center rounded border border-border px-1.5 py-1 hover:bg-muted transition-colors"
+            className="flex items-center justify-center rounded border border-border px-2 py-2 min-h-[44px] min-w-[44px] hover:bg-muted transition-colors"
             title="Jump forward 1 hour"
           >
-            <ChevronsRight className="h-3 w-3" />
+            <ChevronsRight className="h-4 w-4" />
           </button>
         )}
 
         <button
           onClick={onJumpToLatest}
-          className="text-[10px] rounded border border-border px-2 py-1 hover:bg-muted transition-colors font-medium"
+          className="text-xs rounded border border-border px-3 py-2 min-h-[44px] hover:bg-muted transition-colors font-medium"
           title="Jump to latest"
         >
           Latest
@@ -113,13 +113,13 @@ export function AnimationControls({
 
       {/* Speed selector */}
       <div className="flex items-center gap-2">
-        <span className="text-[10px] text-muted-foreground w-10 shrink-0">Speed</span>
-        <div className="flex gap-1 flex-1">
+        <span className="text-xs text-muted-foreground w-12 shrink-0">Speed</span>
+        <div className="flex gap-1.5 flex-1">
           {SPEED_OPTIONS.map(({ label, ms }) => (
             <button
               key={label}
               onClick={() => onSetSpeed(ms)}
-              className={`flex-1 text-[10px] rounded border px-1 py-0.5 transition-colors ${
+              className={`flex-1 text-xs rounded border px-2 py-1.5 min-h-[36px] transition-colors ${
                 speed === ms
                   ? `${accentBg} text-white ${accentBorder}`
                   : "border-border hover:bg-muted"
