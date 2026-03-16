@@ -116,12 +116,12 @@ function GlassCard({
 type TabId = "map" | "safety" | "history" | "broadcasts" | "data" | "controls"
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
-  { id: "map", label: "Map", icon: <MapIcon className="h-4 w-4" /> },
-  { id: "safety", label: "Safety", icon: <Shield className="h-4 w-4" /> },
-  { id: "history", label: "History", icon: <History className="h-4 w-4" /> },
-  { id: "broadcasts", label: "Broadcasts", icon: <Megaphone className="h-4 w-4" /> },
-  { id: "data", label: "Data", icon: <Database className="h-4 w-4" /> },
-  { id: "controls", label: "Controls", icon: <Settings className="h-4 w-4" /> },
+  { id: "map", label: "Map", icon: <MapIcon className="h-5 w-5 lg:h-4 lg:w-4" /> },
+  { id: "safety", label: "Safety", icon: <Shield className="h-5 w-5 lg:h-4 lg:w-4" /> },
+  { id: "history", label: "History", icon: <History className="h-5 w-5 lg:h-4 lg:w-4" /> },
+  { id: "broadcasts", label: "Broadcasts", icon: <Megaphone className="h-5 w-5 lg:h-4 lg:w-4" /> },
+  { id: "data", label: "Data", icon: <Database className="h-5 w-5 lg:h-4 lg:w-4" /> },
+  { id: "controls", label: "Controls", icon: <Settings className="h-5 w-5 lg:h-4 lg:w-4" /> },
 ]
 
 // =============================================================================
@@ -609,17 +609,17 @@ export default function AppShell() {
                 <NotificationButton />
               </div>
               {/* Alert badge — always visible */}
-              <Badge className={`${getStatusColor(overallStatus)} text-[9px] md:text-[10px] px-1.5 md:px-2 py-0.5`}>
+              <Badge className={`${getStatusColor(overallStatus)} text-[10px] lg:text-[10px] px-2 py-0.5`}>
                 {getStatusText(overallStatus)}
               </Badge>
               {/* Logout — always visible */}
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-white/60 hover:text-white hover:bg-white/10 h-6 md:h-7 px-1.5 md:px-2"
+                className="text-white/60 hover:text-white hover:bg-white/10 h-8 lg:h-7 px-2"
                 onClick={logout}
               >
-                <LogOut className="h-3 w-3 md:h-3.5 md:w-3.5" />
+                <LogOut className="h-4 w-4 lg:h-3.5 lg:w-3.5" />
               </Button>
             </div>
           </GlassPanel>
@@ -772,31 +772,31 @@ export default function AppShell() {
           <div className="lg:hidden pointer-events-auto px-2 -mt-1">
             <button
               onClick={() => setMobileSheetOpen(!mobileSheetOpen)}
-              className="w-full backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-lg px-3 py-1.5 flex items-center justify-between"
+              className="w-full backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-lg px-4 py-3 flex items-center justify-between"
             >
-              <div className="flex items-center gap-3 text-[11px] overflow-x-auto">
-                <span className="flex items-center gap-1 text-blue-300 shrink-0">
-                  <Waves className="h-3 w-3" />
+              <div className="flex items-center gap-4 text-xs overflow-x-auto">
+                <span className="flex items-center gap-1.5 text-blue-300 shrink-0">
+                  <Waves className="h-4 w-4" />
                   {snapshot.waterLevel.effectiveValue.toFixed(2)}m
                 </span>
-                <span className="flex items-center gap-1 text-cyan-300 shrink-0">
-                  <CloudRain className="h-3 w-3" />
+                <span className="flex items-center gap-1.5 text-cyan-300 shrink-0">
+                  <CloudRain className="h-4 w-4" />
                   {snapshot.rainfall.toFixed(1)}mm
                 </span>
-                <span className={`flex items-center gap-1 shrink-0 ${
+                <span className={`flex items-center gap-1.5 shrink-0 ${
                   snapshot.risk > 0.8 ? "text-red-400" :
                   snapshot.risk > 0.5 ? "text-orange-400" :
                   "text-emerald-400"
                 }`}>
-                  <AlertOctagon className="h-3 w-3" />
+                  <AlertOctagon className="h-4 w-4" />
                   {(snapshot.risk * 100).toFixed(0)}%
                 </span>
-                <span className="flex items-center gap-1 text-teal-300 shrink-0">
-                  <ThermometerSun className="h-3 w-3" />
+                <span className="flex items-center gap-1.5 text-teal-300 shrink-0">
+                  <ThermometerSun className="h-4 w-4" />
                   {snapshot.humidity.effectiveValue.toFixed(0)}%
                 </span>
               </div>
-              <ChevronUp className={`h-3.5 w-3.5 text-white/40 shrink-0 ml-2 transition-transform ${mobileSheetOpen ? "rotate-180" : ""}`} />
+              <ChevronUp className={`h-5 w-5 text-white/40 shrink-0 ml-2 transition-transform ${mobileSheetOpen ? "rotate-180" : ""}`} />
             </button>
           </div>
         )}
@@ -828,9 +828,9 @@ export default function AppShell() {
           <div className="lg:hidden pointer-events-auto mt-auto mb-1 px-2 flex justify-end gap-2">
             <button
               onClick={() => setMobileLayersOpen(true)}
-              className="backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-full h-10 w-10 flex items-center justify-center text-white/70 hover:text-white shadow-lg"
+              className="backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-full h-12 w-12 flex items-center justify-center text-white/70 hover:text-white shadow-lg"
             >
-              <Layers className="h-4 w-4" />
+              <Layers className="h-5 w-5" />
             </button>
           </div>
         )}
@@ -863,7 +863,7 @@ export default function AppShell() {
         {/* ═══════ BOTTOM NAVIGATION ═══════ */}
         <div className="pointer-events-auto shrink-0 safe-bottom">
           <div className="mx-2 mb-2 mt-1">
-            <GlassPanel className="px-1.5 md:px-2 py-1 md:py-1.5 flex items-center justify-center gap-0.5 md:gap-1 rounded-xl">
+            <GlassPanel className="px-1 lg:px-2 py-1.5 lg:py-1.5 flex items-center justify-center gap-1 lg:gap-1 rounded-xl">
               {TABS.map((tab) => {
                 const isActive = activeTab === tab.id
                 const isDisabled = tab.id === "controls" && user?.role === "viewer"
@@ -878,7 +878,7 @@ export default function AppShell() {
                       }
                     }}
                     className={`
-                      flex items-center gap-1 md:gap-1.5 px-2 md:px-3 py-1.5 rounded-lg text-xs font-medium transition-all
+                      flex flex-col lg:flex-row items-center gap-0.5 lg:gap-1.5 px-2 lg:px-3 py-2 lg:py-1.5 rounded-lg text-[10px] lg:text-xs font-medium transition-all min-w-[3rem] lg:min-w-0
                       ${isActive
                         ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
                         : "text-white/50 hover:text-white/80 hover:bg-white/5"
@@ -887,7 +887,7 @@ export default function AppShell() {
                     `}
                   >
                     {tab.icon}
-                    <span className="hidden sm:inline">{tab.label}</span>
+                    <span>{tab.label}</span>
                     {tab.id === "history" && unackCritical > 0 && (
                       <span className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] text-white font-bold">
                         {unackCritical}
