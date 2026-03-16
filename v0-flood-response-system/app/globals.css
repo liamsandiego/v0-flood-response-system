@@ -2,23 +2,40 @@
 
 @variant dark (&:is(.dark *));
 
-/* Mobile viewport: use dynamic viewport height to avoid browser chrome overlap */
+/* Mobile viewport: use --app-height (set by JS visualViewport) for true available height.
+   This correctly handles Android system nav bar (home/back/recent buttons). */
 html, body {
-  height: 100dvh;
+  height: var(--app-height, 100dvh);
   overflow: hidden;
 }
 
-/* Override Tailwind h-screen to use dvh on supporting browsers */
+/* Override Tailwind h-screen to use the JS-measured height */
 .h-screen {
-  height: 100dvh !important;
+  height: var(--app-height, 100dvh) !important;
 }
 .w-screen {
   width: 100dvw !important;
+  width: 100vw !important;
 }
 
-/* Safe area insets for notched/pill-nav devices */
+/* Safe area padding for Android system nav bar + iOS notch */
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Android system nav bar workaround: on touch devices in standalone/browser mode,
+   the 3-button or gesture nav can overlap. Add extra bottom padding on mobile. */
+@media (pointer: coarse) and (max-width: 1024px) {
+  .safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 12px);
+  }
+}
+
+/* When installed as PWA (standalone), use full safe-area insets */
+@media (display-mode: standalone) {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }
 
 :root {

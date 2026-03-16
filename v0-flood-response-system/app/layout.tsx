@@ -49,6 +49,24 @@ export default function RootLayout({
       <body className={`font-sans antialiased`}>
         {children}
         <Analytics />
+        {/* Set --app-height CSS variable based on actual available viewport (handles Android nav bar) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                function setAppHeight() {
+                  var h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+                  document.documentElement.style.setProperty('--app-height', h + 'px');
+                }
+                setAppHeight();
+                window.addEventListener('resize', setAppHeight);
+                if (window.visualViewport) {
+                  window.visualViewport.addEventListener('resize', setAppHeight);
+                }
+              })();
+            `,
+          }}
+        />
         {/* Register service worker — production only to avoid stale cache in dev */}
         <script
           dangerouslySetInnerHTML={{

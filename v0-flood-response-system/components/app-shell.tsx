@@ -541,7 +541,7 @@ export default function AppShell() {
   // RENDER
   // =========================================================================
   return (
-    <div className="dark glass-dark h-screen w-screen overflow-hidden bg-slate-950 relative">
+    <div className="dark glass-dark h-screen w-screen overflow-hidden bg-slate-950 relative" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       <audio ref={audioRef} src="/sounds/siren.mp3" preload="auto" />
 
       {/* ── Z-0: Globe Background ── */}
@@ -591,12 +591,12 @@ export default function AppShell() {
                   wsStatus === "connecting" ? "bg-yellow-400 animate-pulse" :
                   "bg-red-400"
                 }`} />
-                <span className="text-[10px] text-white/50 hidden md:inline">
+                <span className="text-[10px] text-white/50 hidden lg:inline">
                   {wsStatus === "connected" ? "LIVE" : wsStatus.toUpperCase()}
                 </span>
               </div>
               {/* User info — desktop only */}
-              <div className="hidden md:flex items-center gap-1.5 ml-2">
+              <div className="hidden lg:flex items-center gap-1.5 ml-2">
                 <User className="h-3.5 w-3.5 text-white/60" />
                 <span className="text-xs text-white/80 hidden sm:inline">{user?.name}</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 font-bold uppercase">
@@ -604,7 +604,7 @@ export default function AppShell() {
                 </span>
               </div>
               {/* PWA + Notification — desktop only */}
-              <div className="hidden md:flex items-center gap-1">
+              <div className="hidden lg:flex items-center gap-1">
                 <PwaInstallButton />
                 <NotificationButton />
               </div>
@@ -696,7 +696,7 @@ export default function AppShell() {
               title="Sensor Status"
               icon={<ShieldAlert className="h-3.5 w-3.5 text-red-400" />}
               onClose={() => setLeftPanelOpen(false)}
-              className="hidden md:flex pointer-events-auto absolute top-0 left-0 w-[300px] flex-col max-h-[calc(100%-4px)] z-[15]"
+              className="hidden lg:flex pointer-events-auto absolute top-0 left-0 w-[300px] flex-col max-h-[calc(100%-4px)] z-[15]"
             >
               <div className="p-3 space-y-3 overflow-y-auto scrollbar-thin flex-1">
                 {renderSensorPanelContent()}
@@ -707,7 +707,7 @@ export default function AppShell() {
           {/* Toggle: reopen left panel */}
           {activeTab === "map" && !leftPanelOpen && (
             <button
-              className="hidden md:flex pointer-events-auto absolute top-1 left-0 items-center gap-1.5 px-2 py-1.5 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-r-lg border border-white/10 border-l-0 z-[1]"
+              className="hidden lg:flex pointer-events-auto absolute top-1 left-0 items-center gap-1.5 px-2 py-1.5 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-r-lg border border-white/10 border-l-0 z-[1]"
               onClick={() => setLeftPanelOpen(true)}
             >
               <ShieldAlert className="h-3 w-3" /> Status
@@ -720,7 +720,7 @@ export default function AppShell() {
               title="Map Layers"
               icon={<Layers className="h-3.5 w-3.5 text-cyan-400" />}
               onClose={() => setRightPanelOpen(false)}
-              className="hidden md:flex pointer-events-auto absolute top-0 right-0 w-[300px] flex-col max-h-[calc(100%-4px)] z-[15]"
+              className="hidden lg:flex pointer-events-auto absolute top-0 right-0 w-[300px] flex-col max-h-[calc(100%-4px)] z-[15]"
             >
               <div className="p-3 dark glass-dark overflow-y-auto scrollbar-thin flex-1">
                 <ErrorBoundary>
@@ -733,7 +733,7 @@ export default function AppShell() {
           {/* Toggle: reopen right panel */}
           {activeTab === "map" && !rightPanelOpen && (
             <button
-              className="hidden md:flex pointer-events-auto absolute top-1 right-0 items-center gap-1.5 px-2 py-1.5 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-l-lg border border-white/10 border-r-0 z-[1]"
+              className="hidden lg:flex pointer-events-auto absolute top-1 right-0 items-center gap-1.5 px-2 py-1.5 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-l-lg border border-white/10 border-r-0 z-[1]"
               onClick={() => setRightPanelOpen(true)}
             >
               <Layers className="h-3 w-3" /> Layers
@@ -746,7 +746,7 @@ export default function AppShell() {
               title="Live Sensor Trends"
               icon={<TrendingUp className="h-3.5 w-3.5 text-blue-400" />}
               onClose={() => setBottomPanelOpen(false)}
-              className="hidden md:flex pointer-events-auto absolute bottom-0 left-0 right-0 flex-col z-[15]"
+              className="hidden lg:flex pointer-events-auto absolute bottom-0 left-0 right-0 flex-col z-[15]"
             >
               <div className="p-3 dark glass-dark max-h-[220px] overflow-y-auto">
                 <ErrorBoundary>
@@ -759,7 +759,7 @@ export default function AppShell() {
           {/* Toggle: reopen bottom panel */}
           {activeTab === "map" && !bottomPanelOpen && (
             <button
-              className="hidden md:block pointer-events-auto absolute bottom-0 left-1/2 -translate-x-1/2 px-3 py-1 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-t-lg border border-white/10 border-b-0 z-[1]"
+              className="hidden lg:block pointer-events-auto absolute bottom-0 left-1/2 -translate-x-1/2 px-3 py-1 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-t-lg border border-white/10 border-b-0 z-[1]"
               onClick={() => setBottomPanelOpen(true)}
             >
               Show Trends
@@ -769,7 +769,7 @@ export default function AppShell() {
 
         {/* ═══════ MOBILE: Floating Metrics Bar (Map tab only) ═══════ */}
         {activeTab === "map" && snapshot && (
-          <div className="md:hidden pointer-events-auto px-2 -mt-1">
+          <div className="lg:hidden pointer-events-auto px-2 -mt-1">
             <button
               onClick={() => setMobileSheetOpen(!mobileSheetOpen)}
               className="w-full backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-lg px-3 py-1.5 flex items-center justify-between"
@@ -803,7 +803,7 @@ export default function AppShell() {
 
         {/* ═══════ MOBILE: Bottom Sheet (expanded sensor data) ═══════ */}
         {activeTab === "map" && mobileSheetOpen && (
-          <div className="md:hidden pointer-events-auto flex-1 overflow-y-auto px-2 pb-1 scrollbar-thin">
+          <div className="lg:hidden pointer-events-auto flex-1 overflow-y-auto px-2 pb-1 scrollbar-thin">
             <GlassPanel className="p-3 space-y-3">
               {renderSensorPanelContent()}
 
@@ -825,7 +825,7 @@ export default function AppShell() {
 
         {/* ═══════ MOBILE: Floating Action Buttons (Map tab only) ═══════ */}
         {activeTab === "map" && !mobileSheetOpen && (
-          <div className="md:hidden pointer-events-auto mt-auto mb-1 px-2 flex justify-end gap-2">
+          <div className="lg:hidden pointer-events-auto mt-auto mb-1 px-2 flex justify-end gap-2">
             <button
               onClick={() => setMobileLayersOpen(true)}
               className="backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-full h-10 w-10 flex items-center justify-center text-white/70 hover:text-white shadow-lg"
@@ -836,7 +836,7 @@ export default function AppShell() {
         )}
 
         {/* ═══════ FOOTER STATUS BAR (Desktop only) ═══════ */}
-        <div className="hidden md:block pointer-events-auto shrink-0">
+        <div className="hidden lg:block pointer-events-auto shrink-0">
           <GlassPanel className="mx-2 mb-0 px-4 py-1.5 flex items-center justify-between text-[11px] rounded-xl overflow-hidden">
             <div className="flex items-center gap-4 min-w-0 overflow-hidden">
               <div className="flex items-center gap-1.5">
@@ -861,7 +861,7 @@ export default function AppShell() {
         </div>
 
         {/* ═══════ BOTTOM NAVIGATION ═══════ */}
-        <div className="pointer-events-auto shrink-0">
+        <div className="pointer-events-auto shrink-0 safe-bottom">
           <div className="mx-2 mb-2 mt-1">
             <GlassPanel className="px-1.5 md:px-2 py-1 md:py-1.5 flex items-center justify-center gap-0.5 md:gap-1 rounded-xl">
               {TABS.map((tab) => {
@@ -903,7 +903,7 @@ export default function AppShell() {
 
       {/* ═══════ Z-30: MOBILE LAYERS MODAL ═══════ */}
       {mobileLayersOpen && (
-        <div className="md:hidden fixed inset-0 z-30 flex flex-col">
+        <div className="lg:hidden fixed inset-0 z-30 flex flex-col">
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
