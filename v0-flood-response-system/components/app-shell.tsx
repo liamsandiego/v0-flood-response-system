@@ -851,12 +851,12 @@ export default function AppShell() {
         </div>
       )}
 
-      {/* ═══════ MOBILE: Layers FAB — fixed above nav, always clickable ═══════ */}
+      {/* ═══════ MOBILE: Layers FAB — fixed above metrics bar ═══════ */}
       {isTouch && activeTab === "map" && !mobileSheetOpen && (
         <button
           onClick={() => setMobileLayersOpen(true)}
           className="fixed z-[24] backdrop-blur-xl bg-slate-900/80 border border-white/20 rounded-full h-14 w-14 flex items-center justify-center text-white/80 hover:text-white shadow-xl"
-          style={{ bottom: '80px', right: '16px' }}
+          style={{ bottom: '136px', right: '16px' }}
         >
           <Layers className="h-6 w-6" />
         </button>
