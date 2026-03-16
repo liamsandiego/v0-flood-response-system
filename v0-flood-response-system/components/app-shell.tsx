@@ -766,7 +766,7 @@ export default function AppShell() {
               title="Live Sensor Trends"
               icon={<TrendingUp className="h-3.5 w-3.5 text-blue-400" />}
               onClose={() => setBottomPanelOpen(false)}
-              className="hidden lg:flex pointer-events-auto absolute bottom-0 left-0 right-0 flex-col z-[15]"
+              className="hidden lg:flex pointer-events-auto absolute bottom-[40px] left-0 right-0 flex-col z-[15]"
             >
               <div className="p-3 dark glass-dark max-h-[220px] overflow-y-auto">
                 <ErrorBoundary>
@@ -779,7 +779,7 @@ export default function AppShell() {
           {/* Toggle: reopen bottom panel */}
           {activeTab === "map" && !bottomPanelOpen && !isTouch && (
             <button
-              className="hidden lg:block pointer-events-auto absolute bottom-0 left-1/2 -translate-x-1/2 px-3 py-1 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-t-lg border border-white/10 border-b-0 z-[1]"
+              className="hidden lg:block pointer-events-auto absolute bottom-[40px] left-1/2 -translate-x-1/2 px-3 py-1 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-t-lg border border-white/10 border-b-0 z-[1]"
               onClick={() => setBottomPanelOpen(true)}
             >
               Show Trends
