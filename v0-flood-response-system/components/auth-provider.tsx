@@ -129,12 +129,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       admin: { password: "admin123", role: "admin", name: "Admin User" },
       operator: { password: "operator123", role: "operator", name: "Operator User" },
     }
-    const acct = accounts[username]
+    // Strip @rapidrelay.local if browser autofilled the email form
+    const key = username.replace(/@rapidrelay\.local$/, "")
+    const acct = accounts[key]
     if (acct && password === acct.password) {
       setUser({
-        id: `demo-${username}`,
-        email: `${username}@rapidrelay.local`,
-        username,
+        id: `demo-${key}`,
+        email: `${key}@rapidrelay.local`,
+        username: key,
         role: acct.role,
         name: acct.name,
       })
