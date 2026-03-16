@@ -1,62 +1,54 @@
 "use client"
 
+import { useState } from "react"
 import { usePwaInstall } from "@/hooks/use-pwa-install"
-import { Button } from "@/components/ui/button"
+import { PwaInstallModal } from "@/components/pwa-install-modal"
 import { Download, CheckCircle, Smartphone } from "lucide-react"
 
 /**
- * PWA Install Button – always visible in the dashboard header.
- * Shows different states: installed, ready to install, or prompting
- * the user to use the browser menu.
+ * PWA Install Button — opens a proper install modal with per-browser instructions.
+ * On desktop: compact button in header. On mobile: shown in header + opens bottom sheet modal.
  */
-export function PwaInstallButton() {
+export function PwaInstallButton({ compact = false }: { compact?: boolean }) {
   const { canInstall, isInstalled, promptInstall } = usePwaInstall()
+  const [modalOpen, setModalOpen] = useState(false)
 
   if (isInstalled) {
-    return (
-      <Button variant="outline" size="sm" disabled className="gap-1 text-green-600">
+    return compact ? null : (
+      <button className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-emerald-400 text-xs font-medium opacity-70 cursor-default">
         <CheckCircle className="h-4 w-4" />
         <span className="hidden sm:inline">Installed</span>
-      </Button>
+      </button>
     )
   }
 
-  if (canInstall) {
-    return (
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={promptInstall}
-        className="gap-1"
-      >
-        <Download className="h-4 w-4" />
-        <span className="hidden sm:inline">Install App</span>
-      </Button>
-    )
-  }
-
-  // Always show — even when beforeinstallprompt hasn't fired yet
-  // (e.g. HTTP dev server, unsupported browser). Tapping opens a hint.
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="gap-1"
-      onClick={() => {
-        // Try to trigger the install prompt; if unavailable show a hint
-        if (typeof window !== "undefined") {
-          alert(
-            "To install RapidRelay:\n\n" +
-            "• Chrome/Edge: Click the install icon (⊕) in the address bar\n" +
-            "• Safari: Tap Share → Add to Home Screen\n" +
-            "• Firefox: Use the browser menu → Install\n\n" +
-            "Note: The app must be served over HTTPS for native install."
-          )
-        }
-      }}
-    >
-      <Smartphone className="h-4 w-4" />
-      <span className="hidden sm:inline">Install App</span>
-    </Button>
+    <>
+      <button
+        onClick={() => {
+          if (canInstall) {
+            promptInstall()
+          } else {
+            setModalOpen(true)
+          }
+        }}
+        className={`flex items-center gap-1.5 rounded-lg font-medium transition-colors
+          ${compact
+            ? "h-10 w-10 justify-center bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/30"
+            : "px-3 py-2 text-xs bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/30"
+          }`}
+        title="Install App"
+      >
+        {canInstall ? <Download className="h-4 w-4 flex-shrink-0" /> : <Smartphone className="h-4 w-4 flex-shrink-0" />}
+        {!compact && <span>Install App</span>}
+      </button>
+
+      <PwaInstallModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onNativeInstall={promptInstall}
+        canNativeInstall={canInstall}
+      />
+    </>
   )
 }

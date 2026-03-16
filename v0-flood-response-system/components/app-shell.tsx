@@ -618,8 +618,10 @@ export default function AppShell() {
                   </span>
                 </div>
               )}
-              {/* PWA + Notification — desktop only */}
-              {!isTouch && (
+              {/* PWA Install — mobile: compact icon, desktop: full button */}
+              {isTouch ? (
+                <PwaInstallButton compact />
+              ) : (
                 <div className="hidden lg:flex items-center gap-1">
                   <PwaInstallButton />
                   <NotificationButton />
@@ -643,7 +645,8 @@ export default function AppShell() {
         </div>
 
         {/* ═══════ MAIN CONTENT AREA ═══════ */}
-        <div className="flex-1 overflow-hidden p-2 relative">
+        {/* pb-16 on mobile = 64px clearance for fixed bottom nav */}
+        <div className="flex-1 overflow-hidden p-2 relative" style={{ paddingBottom: isTouch ? '72px' : undefined }}>
 
           {/* ─── Non-map tabs: full-screen scrollable content ─── */}
           {activeTab !== "map" && (
@@ -784,82 +787,85 @@ export default function AppShell() {
           )}
         </div>
 
-        {/* ═══════ MOBILE: Floating Metrics Bar (Map tab only) ═══════ */}
-        {activeTab === "map" && snapshot && isTouch && (
-          <div className="pointer-events-auto px-2 -mt-1">
-            <button
-              onClick={() => setMobileSheetOpen(!mobileSheetOpen)}
-              className="w-full backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-lg px-4 py-4 flex items-center justify-between"
-            >
-              <div className="flex items-center gap-5 text-sm overflow-x-auto">
-                <span className="flex items-center gap-2 text-blue-300 shrink-0">
-                  <Waves className="h-5 w-5" />
-                  <span className="font-semibold">{snapshot.waterLevel.effectiveValue.toFixed(2)}m</span>
-                </span>
-                <span className="flex items-center gap-2 text-cyan-300 shrink-0">
-                  <CloudRain className="h-5 w-5" />
-                  <span className="font-semibold">{snapshot.rainfall.toFixed(1)}mm</span>
-                </span>
-                <span className={`flex items-center gap-2 shrink-0 ${
-                  snapshot.risk > 0.8 ? "text-red-400" :
-                  snapshot.risk > 0.5 ? "text-orange-400" :
-                  "text-emerald-400"
-                }`}>
-                  <AlertOctagon className="h-5 w-5" />
-                  <span className="font-semibold">{(snapshot.risk * 100).toFixed(0)}%</span>
-                </span>
-                <span className="flex items-center gap-2 text-teal-300 shrink-0">
-                  <ThermometerSun className="h-5 w-5" />
-                  <span className="font-semibold">{snapshot.humidity.effectiveValue.toFixed(0)}%</span>
-                </span>
-              </div>
-              <ChevronUp className={`h-6 w-6 text-white/40 shrink-0 ml-2 transition-transform ${mobileSheetOpen ? "rotate-180" : ""}`} />
-            </button>
-          </div>
-        )}
+        {/* ═══════ MOBILE: Floating Metrics Bar — sits above fixed nav ═══════ */}
+        {/* Note: This is positioned outside the flex flow using z-[24] fixed positioning */}
+      </div>
 
-        {/* ═══════ MOBILE: Bottom Sheet (expanded sensor data) ═══════ */}
-        {activeTab === "map" && mobileSheetOpen && isTouch && (
-          <div className="pointer-events-auto overflow-y-auto px-2 pb-1 scrollbar-thin" style={{ maxHeight: '70vh' }}>
-            {/* Grab bar indicator */}
-            <div className="flex justify-center py-1.5">
-              <div className="w-10 h-1 rounded-full bg-white/20" />
+      {/* ─── MOBILE FIXED ELEMENTS (outside flex flow, above nav) ─── */}
+      {isTouch && activeTab === "map" && snapshot && (
+        <div className="fixed left-0 right-0 z-[24] px-2" style={{ bottom: '72px' }}>
+          <button
+            onClick={() => setMobileSheetOpen(!mobileSheetOpen)}
+            className="w-full backdrop-blur-xl bg-slate-900/80 border border-white/10 rounded-xl px-4 py-3.5 flex items-center justify-between shadow-lg"
+          >
+            <div className="flex items-center gap-5 text-sm overflow-x-auto">
+              <span className="flex items-center gap-2 text-blue-300 shrink-0">
+                <Waves className="h-5 w-5" />
+                <span className="font-semibold">{snapshot.waterLevel.effectiveValue.toFixed(2)}m</span>
+              </span>
+              <span className="flex items-center gap-2 text-cyan-300 shrink-0">
+                <CloudRain className="h-5 w-5" />
+                <span className="font-semibold">{snapshot.rainfall.toFixed(1)}mm</span>
+              </span>
+              <span className={`flex items-center gap-2 shrink-0 ${
+                snapshot.risk > 0.8 ? "text-red-400" :
+                snapshot.risk > 0.5 ? "text-orange-400" :
+                "text-emerald-400"
+              }`}>
+                <AlertOctagon className="h-5 w-5" />
+                <span className="font-semibold">{(snapshot.risk * 100).toFixed(0)}%</span>
+              </span>
+              <span className="flex items-center gap-2 text-teal-300 shrink-0">
+                <ThermometerSun className="h-5 w-5" />
+                <span className="font-semibold">{snapshot.humidity.effectiveValue.toFixed(0)}%</span>
+              </span>
             </div>
-            <GlassPanel className="p-3 space-y-3">
-              {renderSensorPanelContent()}
+            <ChevronUp className={`h-6 w-6 text-white/40 shrink-0 ml-2 transition-transform ${mobileSheetOpen ? "rotate-180" : ""}`} />
+          </button>
+        </div>
+      )}
 
-              {/* Graphs inside mobile sheet */}
-              <div>
-                <h2 className="text-xs font-semibold mb-2 flex items-center gap-1.5 text-blue-400 uppercase tracking-wider">
-                  <TrendingUp className="h-3.5 w-3.5" />
-                  Live Trends
-                </h2>
-                <div className="max-h-[200px] overflow-y-auto dark glass-dark">
-                  <ErrorBoundary>
-                    <SensorGraphs history={history} unit="metric" />
-                  </ErrorBoundary>
-                </div>
+      {/* ═══════ MOBILE: Bottom Sheet (expanded sensor data) ═══════ */}
+      {isTouch && activeTab === "map" && mobileSheetOpen && (
+        <div
+          className="fixed left-0 right-0 z-[24] overflow-y-auto px-2 scrollbar-thin"
+          style={{ bottom: '130px', maxHeight: '65vh' }}
+        >
+          <div className="flex justify-center py-1.5">
+            <div className="w-10 h-1 rounded-full bg-white/20" />
+          </div>
+          <GlassPanel className="p-3 space-y-3">
+            {renderSensorPanelContent()}
+            <div>
+              <h2 className="text-xs font-semibold mb-2 flex items-center gap-1.5 text-blue-400 uppercase tracking-wider">
+                <TrendingUp className="h-3.5 w-3.5" />
+                Live Trends
+              </h2>
+              <div className="max-h-[200px] overflow-y-auto dark glass-dark">
+                <ErrorBoundary>
+                  <SensorGraphs history={history} unit="metric" />
+                </ErrorBoundary>
               </div>
-            </GlassPanel>
-          </div>
-        )}
+            </div>
+          </GlassPanel>
+        </div>
+      )}
 
-        {/* ═══════ MOBILE: Floating Action Buttons (Map tab only) ═══════ */}
-        {activeTab === "map" && !mobileSheetOpen && isTouch && (
-          <div className="pointer-events-auto mt-auto mb-1 px-2 flex justify-end gap-2">
-            <button
-              onClick={() => setMobileLayersOpen(true)}
-              className="backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-full h-14 w-14 flex items-center justify-center text-white/70 hover:text-white shadow-lg"
-            >
-              <Layers className="h-6 w-6" />
-            </button>
-          </div>
-        )}
+      {/* ═══════ MOBILE: Layers FAB — fixed above nav, always clickable ═══════ */}
+      {isTouch && activeTab === "map" && !mobileSheetOpen && (
+        <button
+          onClick={() => setMobileLayersOpen(true)}
+          className="fixed z-[24] backdrop-blur-xl bg-slate-900/80 border border-white/20 rounded-full h-14 w-14 flex items-center justify-center text-white/80 hover:text-white shadow-xl"
+          style={{ bottom: '80px', right: '16px' }}
+        >
+          <Layers className="h-6 w-6" />
+        </button>
+      )}
 
-        {/* ═══════ FOOTER STATUS BAR (Desktop only) ═══════ */}
-        {!isTouch && (
-        <div className="hidden lg:block pointer-events-auto shrink-0">
-          <GlassPanel className="mx-2 mb-0 px-4 py-1.5 flex items-center justify-between text-[11px] rounded-xl overflow-hidden">
+      {/* ═══════ DESKTOP FOOTER STATUS BAR (lg+ only) ═══════ */}
+      {!isTouch && (
+        <div className="hidden lg:block fixed bottom-0 left-0 right-0 z-[25] pointer-events-auto">
+          <GlassPanel className="mx-2 mb-2 px-4 py-1.5 flex items-center justify-between text-[11px] rounded-xl overflow-hidden">
             <div className="flex items-center gap-4 min-w-0 overflow-hidden">
               <div className="flex items-center gap-1.5">
                 <Radio className={`h-3 w-3 ${networkOnline ? "text-emerald-400" : "text-red-400"}`} />
@@ -881,48 +887,56 @@ export default function AppShell() {
             </div>
           </GlassPanel>
         </div>
-        )}
+      )}
 
-        {/* ═══════ BOTTOM NAVIGATION ═══════ */}
-        <div className="pointer-events-auto shrink-0 safe-bottom">
-          <div className="mx-2 mb-2 mt-1">
-            <GlassPanel className="px-1 lg:px-2 py-1.5 lg:py-1.5 flex items-center justify-center gap-1 lg:gap-1 rounded-xl">
-              {TABS.map((tab) => {
-                const isActive = activeTab === tab.id
-                const isDisabled = tab.id === "controls" && user?.role === "viewer"
-                return (
-                  <button
-                    key={tab.id}
-                    disabled={isDisabled}
-                    onClick={() => {
-                      if (!isDisabled) {
-                        setActiveTab(tab.id)
-                        setMobileSheetOpen(false) // close sheet on tab change
-                      }
-                    }}
-                    className={`
-                      flex flex-col lg:flex-row items-center gap-1 lg:gap-1.5 px-3 lg:px-3 py-2.5 lg:py-1.5 rounded-lg text-xs lg:text-xs font-medium transition-all min-w-[48px] min-h-[48px] lg:min-h-0 lg:min-w-0
-                      ${isActive
-                        ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
-                        : "text-white/50 hover:text-white/80 hover:bg-white/5"
-                      }
-                      ${isDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}
-                    `}
-                  >
-                    {tab.iconTouch}
-                    <span>{tab.label}</span>
-                    {tab.id === "history" && unackCritical > 0 && (
-                      <span className="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold">
-                        {unackCritical}
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-            </GlassPanel>
-          </div>
+      {/* ═══════ FIXED BOTTOM NAVIGATION BAR ═══════ */}
+      {/* h-16 = 64px — guaranteed tap height on mobile. Fixed to viewport. */}
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-[25] pointer-events-auto"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
+        <div className="backdrop-blur-xl bg-slate-900/90 border-t border-white/10 flex items-stretch h-16">
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.id
+            const isDisabled = tab.id === "controls" && user?.role === "viewer"
+            return (
+              <button
+                key={tab.id}
+                disabled={isDisabled}
+                onClick={() => {
+                  if (!isDisabled) {
+                    setActiveTab(tab.id)
+                    setMobileSheetOpen(false)
+                  }
+                }}
+                className={`
+                  flex-1 h-full flex flex-col items-center justify-center gap-1 relative
+                  transition-colors duration-150
+                  ${isActive
+                    ? "text-cyan-300 bg-cyan-500/10"
+                    : "text-white/50 hover:text-white/80 hover:bg-white/5"
+                  }
+                  ${isDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}
+                `}
+              >
+                {/* Active indicator bar at top */}
+                {isActive && (
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-cyan-400" />
+                )}
+                <div className="h-6 w-6 flex items-center justify-center">
+                  {tab.iconTouch}
+                </div>
+                <span className="text-[10px] font-medium leading-none">{tab.label}</span>
+                {tab.id === "history" && unackCritical > 0 && (
+                  <span className="absolute top-2 right-[calc(50%-14px)] inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[9px] text-white font-bold">
+                    {unackCritical}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
-      </div>
+      </nav>
 
       {/* ═══════ Z-30: MOBILE LAYERS MODAL ═══════ */}
       {mobileLayersOpen && (
