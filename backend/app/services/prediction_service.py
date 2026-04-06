@@ -1,64 +1,64 @@
 # =============================================================================
 # RapidRelay – ML Prediction Service
 #
-# Loads the trained XGBoost model and provides real-time flood predictions.
-# Integrates with the feature engineering pipeline from the ML directory.
+# Loads the trained NewPhase ML model and provides real-time flood predictions.
+# Uses the 25-feature NewPhase pipeline via newphase_adapter.py
 # =============================================================================
 
-import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 import joblib
 import numpy as np
 import pandas as pd
 
-from app.config import MODEL_PATH, ALERT_THRESHOLDS, EO_TIMESERIES_CSV, SENSOR_CSV
+from app.config import (
+    MODEL_PATH,
+    MODEL_PATH_LGBM,
+    MODEL_PATH_XGB,
+    MODEL_PATH_RF,
+    ALERT_THRESHOLDS,
+    EO_TIMESERIES_CSV,
+    SENSOR_CSV,
+)
+from app.services.newphase_adapter import (
+    build_realtime_features,
+    SENSOR_FEATURE_COLUMNS,
+    validate_model_compatibility,
+    NewPhaseEnsemble,
+)
 
 logger = logging.getLogger("rapidrelay.ml")
 
-# Feature columns must match feature_engineering.py FEATURE_COLUMNS exactly
-FEATURE_COLUMNS = [
-    "max_water_level_6h",
-    "max_water_level_24h",
-    "water_level_slope_3h",
-    "water_level_slope_6h",
-    "water_level_std_24h",
-    "rainfall_sum_1h",
-    "rainfall_sum_6h",
-    "rainfall_sum_24h",
-    "rainfall_max_intensity",
-    "humidity_mean_24h",
-    "humidity_trend_6h",
-    "soil_saturation",
-    "soil_saturation_mean_24h",
-]
+# Use NewPhase 25-feature columns
+FEATURE_COLUMNS = SENSOR_FEATURE_COLUMNS
 
 
 class FloodPredictionService:
-    """Wraps the trained XGBoost model for real-time inference."""
+    """Wraps the trained NewPhase ML models (ensemble: LGBM, XGBoost, RandomForest) for real-time inference."""
 
     def __init__(self):
         self.model = None
+        self.ensemble = None
         self.model_loaded = False
+        self.model_type = "ensemble"  # Now using ensemble of 3 models
         self._sensor_buffer: list[dict] = []  # rolling buffer of raw readings
         self._latest_eo: dict = {}
-        self._load_model()
+        self._load_ensemble()
         self._load_latest_eo()
 
-    def _load_model(self):
-        if MODEL_PATH.exists():
-            try:
-                self.model = joblib.load(str(MODEL_PATH))
-                self.model_loaded = True
-                logger.info(f"XGBoost model loaded from {MODEL_PATH}")
-            except Exception as e:
-                logger.error(f"Failed to load model: {e}")
-                self.model_loaded = False
-        else:
-            logger.warning(f"No model found at {MODEL_PATH}. Using rule-based fallback.")
+    def _load_ensemble(self):
+        """Load the NewPhase ML ensemble (LGBM, XGBoost, RandomForest)."""
+        try:
+            self.ensemble = NewPhaseEnsemble()
+            self.model_loaded = len(self.ensemble.models) > 0
+            if self.model_loaded:
+                logger.info(f"ML ensemble loaded with {len(self.ensemble.models)} models")
+            else:
+                logger.warning("NewPhase ensemble loaded but no models available")
+        except Exception as e:
+            logger.error(f"Failed to load ensemble: {e}")
             self.model_loaded = False
 
     def _load_latest_eo(self):
@@ -78,10 +78,11 @@ class FloodPredictionService:
                 logger.error(f"Failed to load EO data: {e}")
 
     def ingest_reading(self, reading: dict):
-        """Add a sensor reading to the rolling buffer (max 168 for 7 days daily)."""
+        """Add a sensor reading to the rolling buffer (max 336 for 14 days hourly)."""
         self._sensor_buffer.append(reading)
-        if len(self._sensor_buffer) > 168:
-            self._sensor_buffer = self._sensor_buffer[-168:]
+        # Keep 14 days of hourly data (336 samples) for NewPhase features
+        if len(self._sensor_buffer) > 336:
+            self._sensor_buffer = self._sensor_buffer[-336:]
 
     def predict(self) -> dict:
         """
@@ -89,28 +90,33 @@ class FloodPredictionService:
 
         Returns dict with: flood_probability, alert_level, features_used, method
         """
-        if self.model_loaded and len(self._sensor_buffer) >= 7:
+        # NewPhase requires at least 48 hours of data
+        if self.model_loaded and len(self._sensor_buffer) >= 48:
             return self._predict_ml()
         else:
             return self._predict_rules()
 
     def _predict_ml(self) -> dict:
-        """XGBoost-based prediction using engineered features."""
+        """NewPhase ML ensemble prediction using 40 engineered sensor features."""
         try:
-            features = self._engineer_features()
+            # Use NewPhase adapter for feature engineering
+            features = build_realtime_features(self._sensor_buffer, freq="1h")
+
             if features is None:
+                logger.warning("Feature engineering returned None, falling back to rules")
                 return self._predict_rules()
 
-            X = np.array([[features.get(col, 0.0) for col in FEATURE_COLUMNS]])
-            prob = float(self.model.predict_proba(X)[0][1])
-            alert = self._classify_alert(prob)
+            # Use ensemble for prediction
+            result = self.ensemble.predict(features)
 
+            # Map ensemble result to standard format
             return {
-                "flood_probability": round(prob, 4),
-                "alert_level": alert,
+                "flood_probability": result.get("flood_probability", 0.0),
+                "alert_level": result.get("alert_level", "CLEAR"),
                 "features_used": features,
-                "method": "xgboost",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "method": result.get("method", "ensemble"),
+                "variance": result.get("variance", 0.0),
+                "timestamp": result.get("timestamp", datetime.now(timezone.utc).isoformat()),
             }
         except Exception as e:
             logger.error(f"ML prediction failed: {e}, falling back to rules")
@@ -164,52 +170,6 @@ class FloodPredictionService:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-    def _engineer_features(self) -> Optional[dict]:
-        """Build ML features from the sensor buffer."""
-        if len(self._sensor_buffer) < 7:
-            return None
-
-        df = pd.DataFrame(self._sensor_buffer)
-        if "timestamp" in df.columns:
-            df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-            df = df.set_index("timestamp").sort_index()
-        else:
-            df.index = pd.date_range(
-                end=pd.Timestamp.now("UTC"), periods=len(df), freq="1D"
-            )
-
-        # Add soil saturation from latest EO
-        df["soil_saturation"] = self._latest_eo.get("soil_saturation", 0.5)
-
-        features = {}
-        wl = df.get("water_level", pd.Series(dtype=float))
-        rf = df.get("rainfall", pd.Series(dtype=float))
-        hu = df.get("humidity", pd.Series(dtype=float))
-        ss = df.get("soil_saturation", pd.Series(dtype=float))
-
-        # Water level features (daily data, 7-day/14-day windows)
-        features["max_water_level_6h"] = float(wl.iloc[-1:].max()) if len(wl) > 0 else 0
-        features["max_water_level_24h"] = float(wl.iloc[-7:].max()) if len(wl) > 0 else 0
-        features["water_level_slope_3h"] = float(wl.iloc[-1] - wl.iloc[-2]) if len(wl) >= 2 else 0
-        features["water_level_slope_6h"] = float(wl.iloc[-1] - wl.iloc[-2]) if len(wl) >= 2 else 0
-        features["water_level_std_24h"] = float(wl.iloc[-7:].std()) if len(wl) >= 2 else 0
-
-        # Rainfall features
-        features["rainfall_sum_1h"] = float(rf.iloc[-1:].sum()) if len(rf) > 0 else 0
-        features["rainfall_sum_6h"] = float(rf.iloc[-1:].sum()) if len(rf) > 0 else 0
-        features["rainfall_sum_24h"] = float(rf.iloc[-7:].sum()) if len(rf) > 0 else 0
-        features["rainfall_max_intensity"] = float(rf.iloc[-1:].max()) if len(rf) > 0 else 0
-
-        # Humidity features
-        features["humidity_mean_24h"] = float(hu.iloc[-7:].mean()) if len(hu) > 0 else 50
-        features["humidity_trend_6h"] = float(hu.iloc[-1] - hu.iloc[-2]) if len(hu) >= 2 else 0
-
-        # Soil saturation
-        features["soil_saturation"] = float(ss.iloc[-1]) if len(ss) > 0 else 0.5
-        features["soil_saturation_mean_24h"] = float(ss.iloc[-7:].mean()) if len(ss) > 0 else 0.5
-
-        return features
-
     def _classify_alert(self, prob: float) -> str:
         if prob >= ALERT_THRESHOLDS["DANGER"]:
             return "DANGER"
@@ -222,8 +182,10 @@ class FloodPredictionService:
     def get_status(self) -> dict:
         return {
             "model_loaded": self.model_loaded,
+            "model_type": self.model_type if self.model_loaded else None,
             "model_path": str(MODEL_PATH),
             "buffer_size": len(self._sensor_buffer),
+            "min_buffer_required": 48,
             "latest_eo": self._latest_eo,
             "feature_count": len(FEATURE_COLUMNS),
         }

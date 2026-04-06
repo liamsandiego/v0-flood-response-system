@@ -1,13 +1,16 @@
 -- =============================================================================
--- RapidRelay – Supabase Table Setup
+-- RapidRelay — Supabase Table Setup (updated)
+-- Run in Supabase SQL Editor (Dashboard > SQL Editor > New Query)
 --
--- Run this in Supabase SQL Editor (Dashboard > SQL Editor > New Query)
--- Creates: sensor_readings, flood_predictions, alerts
--- Enables: Realtime on sensor_readings for live frontend subscriptions
--- Includes: Cron-based simulator for deployment (no backend needed)
+-- Tables:
+--   sensor_readings   — original (kept for backward compat)
+--   readings_mirror   — LOCAL.DB sync target (primary cloud copy of LoRa data)
+--   flood_predictions — ML prediction log
+--   alerts            — alert feed
+--   system_config     — cloud-editable runtime config (synced down to Pi)
 -- =============================================================================
 
--- ─── 1. SENSOR READINGS ─────────────────────────────────────────────────────
+-- ─── 1. SENSOR READINGS (legacy, kept for Supabase simulator) ─────────────
 
 create table if not exists public.sensor_readings (
   id            bigint generated always as identity primary key,
@@ -25,45 +28,61 @@ create table if not exists public.sensor_readings (
   received_at   timestamptz default now()
 );
 
--- Indexes for fast queries
 create index if not exists idx_sr_sensor_id on public.sensor_readings (sensor_id);
 create index if not exists idx_sr_timestamp on public.sensor_readings (timestamp desc);
-create index if not exists idx_sr_sensor_ts on public.sensor_readings (sensor_id, timestamp desc);
 
--- RLS: allow anon reads, service role writes
 alter table public.sensor_readings enable row level security;
-
-create policy "Allow public read" on public.sensor_readings
-  for select using (true);
-
-create policy "Allow service role insert" on public.sensor_readings
-  for insert with check (true);
+create policy "Allow public read"         on public.sensor_readings for select using (true);
+create policy "Allow service role insert" on public.sensor_readings for insert with check (true);
 
 
--- ─── 2. FLOOD PREDICTIONS ───────────────────────────────────────────────────
+-- ─── 2. READINGS MIRROR — SQLite local.db sync target ────────────────────
+-- sync_engine.py pushes readings_local rows here (synced=0 → pushed → synced=1)
+
+create table if not exists public.readings_mirror (
+  id               bigint generated always as identity primary key,
+  local_id         integer not null,          -- SQLite readings_local.id
+  sensor_id        text    not null,
+  raw_mm           integer,
+  validated_m      double precision,
+  uncertainty      double precision,
+  alert_level      text,
+  requires_human   boolean default false,
+  explanation      jsonb,
+  source           text    default 'lora',    -- 'lora'|'mqtt'|'serial'|'simulate'
+  local_created_at timestamptz,
+  synced_at        timestamptz default now()
+);
+
+create index if not exists idx_rm_sensor on public.readings_mirror (sensor_id);
+create index if not exists idx_rm_created on public.readings_mirror (local_created_at desc);
+create index if not exists idx_rm_alert on public.readings_mirror (alert_level);
+
+alter table public.readings_mirror enable row level security;
+create policy "Allow public read"         on public.readings_mirror for select using (true);
+create policy "Allow service role insert" on public.readings_mirror for insert with check (true);
+
+
+-- ─── 3. FLOOD PREDICTIONS ────────────────────────────────────────────────
 
 create table if not exists public.flood_predictions (
   id                bigint generated always as identity primary key,
   flood_probability double precision not null,
   alert_level       text not null,
   features_json     text,
-  method            text default 'unknown',
-  model_version     text default 'v1',
+  method            text default 'lgbm',      -- updated: lgbm / rf / xgb / rule_based
+  model_version     text default 'v2',
   predicted_at      timestamptz default now()
 );
 
 create index if not exists idx_fp_predicted_at on public.flood_predictions (predicted_at desc);
 
 alter table public.flood_predictions enable row level security;
-
-create policy "Allow public read" on public.flood_predictions
-  for select using (true);
-
-create policy "Allow service role insert" on public.flood_predictions
-  for insert with check (true);
+create policy "Allow public read"         on public.flood_predictions for select using (true);
+create policy "Allow service role insert" on public.flood_predictions for insert with check (true);
 
 
--- ─── 3. ALERTS ──────────────────────────────────────────────────────────────
+-- ─── 4. ALERTS ────────────────────────────────────────────────────────────
 
 create table if not exists public.alerts (
   id              bigint generated always as identity primary key,
@@ -79,43 +98,69 @@ create table if not exists public.alerts (
 );
 
 create index if not exists idx_alerts_created on public.alerts (created_at desc);
+create index if not exists idx_alerts_level   on public.alerts (alert_level);
 
 alter table public.alerts enable row level security;
-
-create policy "Allow public read" on public.alerts
-  for select using (true);
-
-create policy "Allow service role insert" on public.alerts
-  for insert with check (true);
+create policy "Allow public read"         on public.alerts for select using (true);
+create policy "Allow service role insert" on public.alerts for insert with check (true);
+create policy "Allow service role update" on public.alerts for update using (true);
 
 
--- ─── 4. ENABLE REALTIME ─────────────────────────────────────────────────────
--- This lets the frontend subscribe to new rows via Supabase Realtime
+-- ─── 5. SYSTEM CONFIG — cloud-editable runtime settings ──────────────────
+-- sync_engine.py pulls these down to local SQLite (source='cloud' wins)
+
+create table if not exists public.system_config (
+  key        text primary key,
+  value      text,
+  updated_at timestamptz default now()
+);
+
+alter table public.system_config enable row level security;
+create policy "Allow public read"         on public.system_config for select using (true);
+create policy "Allow service role insert" on public.system_config for insert with check (true);
+create policy "Allow service role update" on public.system_config for update using (true);
+
+-- Default cloud config (operators can edit these in Supabase dashboard to push to Pi)
+insert into public.system_config (key, value) values
+  ('alert_watch_m',                  '1.5'),
+  ('alert_warning_m',                '2.0'),
+  ('alert_emergency_m',              '3.0'),
+  ('ensemble_uncertainty_threshold', '0.3'),
+  ('hard_constraint_max_mm',         '10000'),
+  ('hard_constraint_delta_mm',       '500'),
+  ('ollama_model',                   'llama3.2:3b'),
+  ('sync_interval_s',                '300'),
+  ('lora_mode',                      'mqtt')
+on conflict (key) do nothing;
+
+
+-- ─── 6. ENABLE REALTIME ────────────────────────────────────────────────────
 
 alter publication supabase_realtime add table public.sensor_readings;
+alter publication supabase_realtime add table public.readings_mirror;
 alter publication supabase_realtime add table public.flood_predictions;
 alter publication supabase_realtime add table public.alerts;
 
 
--- ─── 5. CLEANUP FUNCTION (keeps DB under free-tier limits) ──────────────────
--- Deletes sensor readings older than 7 days, predictions older than 30 days
+-- ─── 7. CLEANUP FUNCTION ────────────────────────────────────────────────────
 
 create or replace function public.cleanup_old_data()
 returns void language plpgsql as $$
 begin
+  delete from public.readings_mirror
+    where local_created_at < now() - interval '30 days';
   delete from public.sensor_readings
     where timestamp < now() - interval '7 days';
   delete from public.flood_predictions
     where predicted_at < now() - interval '30 days';
   delete from public.alerts
-    where created_at < now() - interval '30 days';
+    where created_at < now() - interval '30 days'
+    and acknowledged = true;
 end;
 $$;
 
 
--- ─── 6. SENSOR SIMULATOR (for deployment without backend) ───────────────────
--- Generates realistic sensor readings matching the 5 Obando nodes.
--- Enable the pg_cron extension first (Supabase Dashboard > Database > Extensions)
+-- ─── 8. SENSOR SIMULATOR (pg_cron — optional) ────────────────────────────
 
 create or replace function public.simulate_sensor_tick()
 returns void language plpgsql as $$
@@ -127,7 +172,6 @@ declare
   base_temp   double precision;
   node        record;
 begin
-  -- Base values with time-of-day variation (higher water at night/dawn)
   base_water := 0.3 + 0.15 * sin(extract(hour from now()) * 3.14159 / 12.0)
                 + (random() * 0.2 - 0.1);
   base_rain  := greatest(0, 2.0 + random() * 6.0 - 2.0);
@@ -135,15 +179,12 @@ begin
   base_soil  := 40.0 + random() * 20.0;
   base_temp  := 28.0 + random() * 4.0 - 2.0;
 
-  -- 5 Obando sensor nodes
   for node in
     select * from (
       values
-        ('obando-brgy-01', 'Brgy. Binuangan',  14.7094, 120.9358),
-        ('obando-brgy-02', 'Brgy. Catanghalan', 14.7120, 120.9310),
-        ('obando-brgy-03', 'Brgy. Paco',        14.7060, 120.9400),
-        ('obando-brgy-04', 'Brgy. Salambao',    14.7140, 120.9280),
-        ('obando-brgy-05', 'Brgy. PAGASA Stn',  14.7072, 120.9376)
+        ('OBD-01', 'Angat River North', 14.8369, 120.9592),
+        ('OBD-02', 'San Pascual Canal',  14.8285, 120.9480),
+        ('OBD-03', 'Poblacion Bridge',   14.8411, 120.9551)
     ) as t(id, name, lat, lon)
   loop
     insert into public.sensor_readings (
@@ -156,25 +197,16 @@ begin
       base_humid + (random() * 5.0 - 2.5),
       base_soil  + (random() * 8.0 - 4.0),
       base_temp  + (random() * 1.0 - 0.5),
-      node.lat,
-      node.lon,
-      random() > 0.02,  -- 98% valid
+      node.lat, node.lon,
+      random() > 0.02,
       now()
     );
   end loop;
 end;
 $$;
 
--- ─── 7. SCHEDULE CRON JOBS ──────────────────────────────────────────────────
--- Enable pg_cron extension first: Supabase Dashboard > Database > Extensions
--- Then uncomment and run these:
-
--- Simulate sensor readings every minute (inserts 5 nodes per call)
--- pg_cron minimum interval is 1 minute — use '* * * * *' not seconds
+-- To enable pg_cron (Supabase Dashboard > Database > Extensions > pg_cron):
 -- select cron.schedule('sensor-simulator', '* * * * *', 'select public.simulate_sensor_tick()');
-
--- Cleanup old data daily at 3am UTC
--- select cron.schedule('cleanup-old-data', '0 3 * * *', 'select public.cleanup_old_data()');
-
--- To check scheduled jobs:  select * from cron.job;
--- To stop simulator:        select cron.unschedule('sensor-simulator');
+-- select cron.schedule('cleanup-old-data', '0 3 * * *',  'select public.cleanup_old_data()');
+-- select * from cron.job;
+-- select cron.unschedule('sensor-simulator');

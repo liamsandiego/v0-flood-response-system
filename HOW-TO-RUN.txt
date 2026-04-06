@@ -1,146 +1,169 @@
 =============================================
   RAPID RELAY — How to Run
+  Obando, Bulacan Flood Early Warning System
 =============================================
 
 
-═══════ LOCAL DEVELOPMENT ═══════
+═══════ QUICK START (Local-First Mode) ═══════
 
-EASY WAY (recommended):
-  1. Double-click  start.bat     (starts both backend + frontend)
-  2. Wait ~10 seconds
-  3. Open browser:  http://localhost:3000
-  4. To stop everything:  double-click  kill.bat
-
-MANUAL WAY (if start.bat doesn't work):
-
-  STEP 1 — Start Backend (Terminal 1)
-  ------------------------------------
-  cd backend
-  python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
-
-  Check it works:  http://localhost:8001/docs
+  1. Double-click  start.bat
+  2. Wait ~30 seconds (Ollama + Next.js boot)
+  3. Dashboard auto-opens at:  http://localhost:3000
+  4. No login required — auto-authenticated as LDRRMO Operator
+  5. To stop everything: double-click  kill.bat
 
 
-  STEP 2 — Start Frontend (Terminal 2)
-  ------------------------------------
-  cd v0-flood-response-system
-  npm run dev
+═══════ WHAT start.bat DOES ═══════
 
-  Open browser:  http://localhost:3000
-
-
-═══════ DEPLOYMENT (Vercel + Supabase) ═══════
-
-The app runs WITHOUT a backend server in production.
-Frontend → Vercel (free). Database → Supabase (free).
-
-  STEP 1 — Set up Supabase tables (one time)
-  -------------------------------------------
-  1. Open Supabase Dashboard > SQL Editor
-  2. Paste the contents of  supabase-setup.sql
-  3. Click "Run"
-  This creates: sensor_readings, flood_predictions, alerts tables
-  and enables Realtime subscriptions.
-
-  STEP 2 — Enable Supabase Cron (optional, for simulated data)
-  -------------------------------------------
-  1. Supabase Dashboard > Database > Extensions
-  2. Search "pg_cron" and enable it
-  3. Go back to SQL Editor, run:
-     select cron.schedule('sensor-simulator', '5 seconds', 'select public.simulate_sensor_tick()');
-     select cron.schedule('cleanup-old-data', '0 3 * * *', 'select public.cleanup_old_data()');
-  This generates simulated sensor data every 5s without any backend.
-
-  STEP 3 — Deploy frontend to Vercel
-  -------------------------------------------
-  1. Push to GitHub
-  2. Import repo in Vercel, set root directory: v0-flood-response-system
-  3. Add environment variables in Vercel:
-       NEXT_PUBLIC_SUPABASE_URL      = (from Supabase dashboard)
-       NEXT_PUBLIC_SUPABASE_ANON_KEY = (from Supabase dashboard)
-  4. Deploy
-
-  STEP 4 — (Optional) Export ML model to ONNX
-  -------------------------------------------
-  If you want ML predictions in production (not just rule-based):
-  1. cd Rapid-Relay-Pre-Prototype-main/flood_preprototype
-  2. pip install xgboost onnxmltools skl2onnx onnxruntime
-  3. python scripts/export_onnx.py
-  4. This copies the ONNX model to v0-flood-response-system/public/models/
-  5. npm install onnxruntime-node  (in v0-flood-response-system/)
-  6. Redeploy to Vercel
-  The API route at /api/predict will auto-detect the model.
+  [1] Creates D:\raprelay\db\ (SQLite database folder)
+  [2] Kills stale Node/Python processes
+  [3] Checks ports 3000 + 11434 are free
+  [4] Starts Ollama (llama3.2:3b) → localhost:11434
+  [5] Starts lora_bridge.py (simulate mode on Windows, serial on Pi)
+  [6] Builds + starts Next.js dashboard → localhost:3000
+  [7] Starts sync_engine.py (background, only when internet available)
 
 
-═══════ LORAWAN HARDWARE (RPi + Sensors) ═══════
+═══════ DATA PIPELINE ═══════
 
-When real sensors are connected via ChirpStack:
-
-  STEP 1 — Start ChirpStack on the Raspberry Pi
-  cd Rapid-Relay-Pre-Prototype-main/chirpstack
-  docker-compose up -d
-
-  STEP 2 — Start MQTT Bridge (same RPi)
-  pip install paho-mqtt supabase python-dotenv
-  python mqtt_bridge.py
-
-  The bridge listens to ChirpStack MQTT uplinks and writes directly
-  to Supabase. No FastAPI backend needed. The frontend picks up data
-  via Supabase Realtime subscriptions automatically.
+  LoRa chirp
+    → lora_bridge.py  (hard constraints: drop <0 or >10m, flag >0.5m/5min)
+    → ensemble_ml.py  (3x XGBoost → mean prediction + uncertainty)
+    → woody_local.py  (Ollama explains: 3 possibilities, no judgment)
+    → SQLite (D:\raprelay\db\local.db)
+    → /api/sse → Dashboard (every 5 seconds)
 
 
-═══════ HOW DATA FLOWS ═══════
+═══════ ENVIRONMENT ═══════
 
-  Local dev:
-    Simulator → FastAPI → WebSocket → Frontend
-                       → Supabase (fire-and-forget)
+  LOCAL_MODE=true          → Bypass Supabase login
+  LOCAL_DB_PATH            → Path to SQLite database
+  OLLAMA_URL               → http://localhost:11434
+  NEXT_PUBLIC_LOCAL_MODE   → "true" shows local status banners
 
-  Deployed (no backend):
-    Supabase Cron simulator → sensor_readings table
-    Frontend subscribes via Supabase Realtime
+  Edit: v0-flood-response-system\.env.local
 
-  Production (real sensors):
-    Sensors → LoRaWAN → ChirpStack → MQTT → mqtt_bridge.py → Supabase
-    Frontend subscribes via Supabase Realtime
+
+═══════ MANUAL START (if start.bat fails) ═══════
+
+  Terminal 1 — Ollama:
+    ollama serve
+
+  Terminal 2 — LoRa Bridge (simulated):
+    python lora_bridge.py --simulate --db D:/raprelay/db/local.db
+
+  Terminal 3 — Dashboard:
+    cd v0-flood-response-system
+    set LOCAL_MODE=true
+    set LOCAL_DB_PATH=D:/raprelay/db/local.db
+    npx next start -p 3000
+
+  Terminal 4 — Cloud Sync (optional):
+    python sync_engine.py
+
+
+═══════ STATUS INDICATORS ═══════
+
+  GREEN "LOCAL LIVE"     → SQLite is receiving sensor data
+  RED "SENSOR OFFLINE"  → No LoRa data for >30 seconds
+  "● CLOUD SYNC"        → All local records synced to cloud
+  "N unsynced"          → Sync pending (internet may be offline)
+  "AI OFFLINE"          → Ollama not running (explanations unavailable)
+
+
+═══════ DATABASE ═══════
+
+  Primary:  D:\raprelay\db\local.db  (SQLite, WAL mode)
+  Tables:   readings_local, sync_queue, sync_log, system_config
+  Backup:   copy local.db to USB stick daily
+  Schema:   schema.sql (in project root)
+
+  Inspect:  sqlite3 D:/raprelay/db/local.db ".tables"
+            sqlite3 D:/raprelay/db/local.db "SELECT * FROM readings_local LIMIT 5;"
+
+
+═══════ PYTHON SCRIPTS ═══════
+
+  lora_bridge.py --simulate --count 10   → generate 10 test readings
+  ensemble_ml.py --demo                  → show 3 flood scenario predictions
+  ensemble_ml.py --export-onnx           → export models for browser inference
+  sync_engine.py --once                  → sync once and show results
+  sync_engine.py --dry-run               → show what would be synced
+
+
+═══════ API ENDPOINTS (localhost:3000) ═══════
+
+  GET  /api/readings             → last 100 SQLite readings
+  GET  /api/readings?sensor=OBD-01&limit=50
+  POST /api/readings             → ingest a reading (from bridge)
+  GET  /api/sse                  → Server-Sent Events (live stream)
+  POST /api/ai/woody             → Ollama explanation proxy
+  GET  /api/sync-status          → cloud sync stats
+  GET  /api/alerts               → active alerts + human-review flags
+
+
+═══════ HARDWARE (Pi 5 + LoRa) ═══════
+
+  1. Set port in start.bat (replace --simulate with --port /dev/ttyUSB0)
+  2. Or pass to lora_bridge.py directly:
+       python lora_bridge.py --port /dev/ttyUSB0
+  3. LoRa payload format: "SENSOR_ID:RAW_MM" (e.g. "OBD-01:1423")
+  4. Kiosk: uncomment Chrome line at bottom of start.bat
+
+
+═══════ BROWNOUT / PI UPS BEHAVIOUR ═══════
+
+  - SQLite WAL mode: survives hard power cuts without corruption
+  - Bridge auto-reconnects serial port on disconnect
+  - SSE auto-reconnects every 10s (polling fallback)
+  - WebSocket reconnects exponentially (max 30s)
+  - Dashboard runs entirely offline — no cloud required
+
+
+═══════ CLOUD SYNC (OPTIONAL) ═══════
+
+  When internet is available, sync_engine.py automatically:
+  - Pushes unsynced local readings to Supabase readings_mirror table
+  - Logs sync results to sync_log table
+  - Runs every 5 minutes (configurable via SYNC_INTERVAL_S env var)
+
+  To skip cloud sync entirely: don't set SUPABASE_SERVICE_ROLE_KEY
 
 
 ═══════ COMMON PROBLEMS ═══════
 
-  Stuck on "RAPID RELAY — Initializing..."
-    -> Hard refresh: Ctrl+Shift+R
-    -> Wait 5 seconds — it auto-recovers
-    -> If Supabase is down, it skips to login
+  "SENSOR OFFLINE" banner
+    → lora_bridge.py not running. Check Terminal 2 or re-run start.bat.
+    → On Pi: check USB LoRa device is connected (lsusb)
 
-  Port already in use
-    -> Run kill.bat first, then start.bat again
+  Port 3000 in use
+    → Run kill.bat first, then start.bat
 
-  Frontend crashes with EPERM error (.next folder locked)
-    -> Run kill.bat (it cleans .next cache)
+  better-sqlite3 error on npm start
+    → cd v0-flood-response-system && npm install better-sqlite3
 
-  Backend won't start
-    -> Use "python -m uvicorn" NOT bare "uvicorn"
-    -> Check: python --version
+  Ollama / AI offline
+    → ollama serve  (in separate terminal)
+    → ollama pull llama3.2:3b  (if model not downloaded)
 
-  "Module not found"
-    -> Backend:  cd backend && pip install -r requirements.txt
-    -> Frontend: cd v0-flood-response-system && npm install
+  "Cannot find module 'ensemble_ml'"
+    → Run from project root: python ensemble_ml.py --train
 
-  Data tab shows 0 records
-    -> Make sure supabase-setup.sql was run in Supabase
-    -> Check that backend or cron simulator is writing data
+  SQLite database not found
+    → mkdir D:\raprelay\db  OR set LOCAL_DB_PATH to a writable path
+
+  Dashboard stuck on "Initializing..."
+    → Ctrl+Shift+R (hard refresh) — LOCAL_MODE should skip straight to dashboard
 
 
 ═══════ PORTS & URLS ═══════
 
-  Frontend:           http://localhost:3000
-  Backend:            http://localhost:8001
-  Backend API docs:   http://localhost:8001/docs
-  WebSocket:          ws://localhost:8001/api/ws
-  ChirpStack:         http://localhost:8080
-  MQTT Broker:        localhost:1883
-  Supabase Dashboard: https://supabase.com/dashboard
+  Dashboard (Next.js):   http://localhost:3000
+  Ollama API:            http://localhost:11434
+  FastAPI backend:       http://localhost:8001  (optional, for legacy mode)
+  SSE stream:            http://localhost:3000/api/sse
+  Readings API:          http://localhost:3000/api/readings
 
-LOGIN:
-  Use your Supabase credentials.
+  Login: None required in LOCAL_MODE=true (auto-authenticated)
 
 =============================================
