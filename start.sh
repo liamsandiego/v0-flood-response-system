@@ -9,7 +9,6 @@
 #   3. sync_engine.py  — local SQLite → Supabase sync
 #   4. FastAPI backend  (port 8001)
 #   5. Next.js dashboard (port 3000)
-#   6. ML pipeline scheduler (main.py --schedule, every 12h)
 #
 # Usage:
 #   ./start.sh              # start everything
@@ -97,37 +96,25 @@ echo "[✓] sync_engine started (interval: ${SYNC_INTERVAL_S:-300}s)"
 
 # ── 4. FastAPI Backend ────────────────────────────────────────────────────────
 echo "[→] Starting FastAPI backend (port 8001)..."
+cd "$ROOT/backend"
 nohup python -m uvicorn app.main:app \
-  --host 0.0.0.0 --port 8001 --workers 1 \
+  --host 0.0.0.0 --port 8001 --workers 1 --reload \
   > "$LOG_DIR/backend.log" 2>&1 &
-echo $! > "$PID_DIR/backend.pid"
-echo "[✓] FastAPI started → http://localhost:8001"
+BACKEND_PID=$!
+echo $BACKEND_PID > "$PID_DIR/backend.pid"
+cd "$ROOT"
+echo "[✓] FastAPI started (PID: $BACKEND_PID) → http://localhost:8001"
+sleep 2  # Give backend time to initialize and load config
 
 # ── 5. Next.js Dashboard ─────────────────────────────────────────────────────
 echo "[→] Starting Next.js dashboard (port 3000)..."
 cd "$WEB_DIR"
 NEXT_TELEMETRY_DISABLED=1 nohup npm run dev \
   > "$LOG_DIR/frontend.log" 2>&1 &
-echo $! > "$PID_DIR/frontend.pid"
+FRONTEND_PID=$!
+echo $FRONTEND_PID > "$PID_DIR/frontend.pid"
 cd "$ROOT"
-echo "[✓] Dashboard started → http://localhost:3000"
-
-# ── 6. ML Pipeline Scheduler ─────────────────────────────────────────────────
-NEWPHASE_DIR="$ROOT/Rapid-Relay-NewPhase/flood_preprototype"
-ML_MODE="${ML_MODE:-sim}"  # Override via .env: ML_MODE=real
-ML_INTERVAL="${ML_SCHEDULE_INTERVAL_H:-12}"
-
-if [ -f "$NEWPHASE_DIR/main.py" ]; then
-  echo "[→] Starting ML pipeline scheduler (every ${ML_INTERVAL}h, mode=$ML_MODE)..."
-  PYTHONPATH="$NEWPHASE_DIR/ml_pipeline:$NEWPHASE_DIR/scripts:$ROOT/backend:$PYTHONPATH" \
-  nohup python "$NEWPHASE_DIR/main.py" \
-    --schedule --interval "$ML_INTERVAL" --mode "$ML_MODE" \
-    > "$LOG_DIR/ml_pipeline.log" 2>&1 &
-  echo $! > "$PID_DIR/ml_pipeline.pid"
-  echo "[✓] ML pipeline scheduler started (NewPhase)"
-else
-  echo "[!] NewPhase main.py not found — skipping ML scheduler"
-fi
+echo "[✓] Dashboard started (PID: $FRONTEND_PID) → http://localhost:3000"
 
 echo ""
 echo "========================================================"
@@ -141,6 +128,43 @@ echo ""
 echo "  Logs: $LOG_DIR/"
 echo "  PIDs: $PID_DIR/"
 echo ""
-echo "  To stop:  ./kill.sh"
-echo "  Status:   python data_layer.py --status"
+echo "========================================================"
+echo ""
+echo "  [→] Waiting for services to initialize (5s)..."
+sleep 5
+
+# ── Verification ──────────────────────────────────────────────────────────────
+echo ""
+echo "  [→] Checking service status:"
+echo ""
+
+# Check backend
+if curl -s http://localhost:8001 >/dev/null 2>&1; then
+  echo "  [✓] Backend running on port 8001"
+else
+  echo "  [!] Backend not responding — check backend/.env and logs:"
+  echo "      tail -f $LOG_DIR/backend.log"
+fi
+
+# Check frontend
+if curl -s http://localhost:3000 >/dev/null 2>&1; then
+  echo "  [✓] Frontend running on port 3000"
+else
+  echo "  [!] Frontend starting (may take 30-60s for Next.js compilation)"
+  echo "      tail -f $LOG_DIR/frontend.log"
+fi
+
+# Check WebSocket
+if timeout 2 curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" http://localhost:8001/api/ws 2>/dev/null | grep -q "Upgrade\|websocket"; then
+  echo "  [✓] WebSocket server active on port 8001"
+else
+  echo "  [!] WebSocket not responding — backend may not have initialized"
+fi
+
+echo ""
+echo "  Next steps:"
+echo "    • View dashboard: http://localhost:3000"
+echo "    • Stop services:  ./kill.sh"
+echo "    • Watch logs:     tail -f $LOG_DIR/backend.log"
+echo ""
 echo "========================================================"

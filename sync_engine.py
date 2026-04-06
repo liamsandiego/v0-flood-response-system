@@ -162,6 +162,18 @@ def sync_readings_up(db, dry_run: bool = False) -> tuple[int, int]:
     return synced, errors
 
 
+
+def map_alert_level_to_supabase(local_level: str) -> str:
+    """Map local alert levels (CLEAR/WATCH/WARNING/DANGER) to Supabase (normal/warning/critical)."""
+    mapping = {
+        "CLEAR":    "normal",
+        "WATCH":    "warning",
+        "WARNING":  "warning",
+        "DANGER":   "critical",
+    }
+    return mapping.get(local_level.upper(), "normal")
+
+
 # ---------------------------------------------------------------------------
 # Sync UP — alerts_local → Supabase alerts
 # ---------------------------------------------------------------------------
@@ -182,7 +194,7 @@ def sync_alerts_up(db, dry_run: bool = False) -> tuple[int, int]:
     id_order = []
     for r in rows:
         payload.append({
-            "alert_level":  r["alert_level"],
+            "alert_level":  map_alert_level_to_supabase(r["alert_level"]),
             "title":        r.get("title"),
             "message":      r["message"],
             "source":       r.get("source", "system"),

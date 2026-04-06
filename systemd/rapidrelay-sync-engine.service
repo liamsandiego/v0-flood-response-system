@@ -1,0 +1,23 @@
+[Unit]
+Description=RapidRelay Sync Engine (SQLite → Supabase)
+After=network.target
+Wants=rapidrelay-database.service
+
+[Service]
+Type=simple
+User=rapidrelay
+WorkingDirectory=/home/grouptba/RapidRelay
+Environment="PATH=/home/grouptba/RapidRelay/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="LOCAL_DB_PATH=/home/rapidrelay/db/local.db"
+Environment="SYNC_INTERVAL_S=300"
+ExecStart=/home/grouptba/RapidRelay/.venv/bin/python /home/grouptba/RapidRelay/sync_engine.py
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=always
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sync_engine
+
+[Install]
+WantedBy=multi-user.target

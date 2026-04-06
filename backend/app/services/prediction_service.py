@@ -15,13 +15,9 @@ import pandas as pd
 
 from app.config import (
     MODEL_PATH,
-    MODEL_PATH_LGBM,
-    MODEL_PATH_XGB,
-    MODEL_PATH_RF,
     ALERT_THRESHOLDS,
-    EO_TIMESERIES_CSV,
-    SENSOR_CSV,
 )
+
 from app.services.newphase_adapter import (
     build_realtime_features,
     SENSOR_FEATURE_COLUMNS,
@@ -62,21 +58,8 @@ class FloodPredictionService:
             self.model_loaded = False
 
     def _load_latest_eo(self):
-        """Load the most recent EO features from the Sentinel-1 timeseries CSV."""
-        if EO_TIMESERIES_CSV.exists():
-            try:
-                df = pd.read_csv(str(EO_TIMESERIES_CSV))
-                if len(df) > 0:
-                    last = df.iloc[-1]
-                    self._latest_eo = {
-                        "soil_saturation": float(last.get("soil_saturation", 0.5)),
-                        "flood_extent": float(last.get("flood_extent", 0.0)),
-                        "wetness_trend": int(last.get("wetness_trend", 0)),
-                    }
-                    logger.info(f"Loaded latest EO: {self._latest_eo}")
-            except Exception as e:
-                logger.error(f"Failed to load EO data: {e}")
-
+        """Rule-based mode: EO data not needed."""
+        self._latest_eo = {}
     def ingest_reading(self, reading: dict):
         """Add a sensor reading to the rolling buffer (max 336 for 14 days hourly)."""
         self._sensor_buffer.append(reading)
@@ -109,10 +92,14 @@ class FloodPredictionService:
             # Use ensemble for prediction
             result = self.ensemble.predict(features)
 
+            # Normalize alert_level to database constraint: NORMAL|WATCH|WARNING|EMERGENCY
+            alert = result.get("alert_level", "CLEAR")
+            alert = self._normalize_alert_level(alert)
+
             # Map ensemble result to standard format
             return {
                 "flood_probability": result.get("flood_probability", 0.0),
-                "alert_level": result.get("alert_level", "CLEAR"),
+                "alert_level": alert,
                 "features_used": features,
                 "method": result.get("method", "ensemble"),
                 "variance": result.get("variance", 0.0),
@@ -171,13 +158,37 @@ class FloodPredictionService:
         }
 
     def _classify_alert(self, prob: float) -> str:
-        if prob >= ALERT_THRESHOLDS["DANGER"]:
+        """Classify probability to enum: NORMAL|WATCH|WARNING|EMERGENCY."""
+        if prob >= ALERT_THRESHOLDS.get("DANGER", 0.75):
             return "DANGER"
-        elif prob >= ALERT_THRESHOLDS["WARNING"]:
+        elif prob >= ALERT_THRESHOLDS.get("WARNING", 0.50):
             return "WARNING"
-        elif prob >= ALERT_THRESHOLDS["WATCH"]:
+        elif prob >= ALERT_THRESHOLDS.get("WATCH", 0.25):
             return "WATCH"
         return "CLEAR"
+
+    def _normalize_alert_level(self, alert: str) -> str:
+        """Convert any alert format to database enum: NORMAL|WATCH|WARNING|EMERGENCY."""
+        if not alert:
+            return "CLEAR"
+
+        alert_upper = str(alert).upper().strip()
+
+        # Map old/alternative names to standard enum
+        mapping = {
+            "CLEAR": "CLEAR",
+            "CLEAR": "CLEAR",
+            "WATCH": "WATCH",
+            "WARNING": "WARNING",
+            "DANGER": "DANGER",
+            "DANGER": "DANGER",
+            "GREEN": "CLEAR",
+            "YELLOW": "WATCH",
+            "ORANGE": "WARNING",
+            "RED": "DANGER",
+        }
+
+        return mapping.get(alert_upper, "CLEAR")
 
     def get_status(self) -> dict:
         return {

@@ -449,7 +449,7 @@ class NewPhaseEnsemble:
             Dict with:
             - flood_probability: float [0, 1] — ensemble mean
             - variance: float — model variance
-            - alert_level: str — 'CLEAR' | 'WATCH' | 'WARNING' | 'DANGER'
+            - alert_level: str — 'NORMAL' | 'WATCH' | 'WARNING' | 'EMERGENCY'
             - method: str — which model(s) used
             - timestamp: str — prediction time
         """
@@ -458,7 +458,7 @@ class NewPhaseEnsemble:
             return {
                 "flood_probability": 0.0,
                 "variance": 1.0,
-                "alert_level": "CLEAR",
+                "alert_level": "NORMAL",
                 "method": "fallback_no_models",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
@@ -486,7 +486,7 @@ class NewPhaseEnsemble:
                 return {
                     "flood_probability": 0.0,
                     "variance": 1.0,
-                    "alert_level": "CLEAR",
+                    "alert_level": "NORMAL",
                     "method": "fallback_all_failed",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
@@ -494,15 +494,15 @@ class NewPhaseEnsemble:
             mean_prob = np.mean(valid_probs)
             variance = np.var(valid_probs)
 
-            # Determine alert level
+            # Determine alert level (map to database enum: NORMAL|WATCH|WARNING|EMERGENCY)
             if mean_prob >= 0.75:
-                alert_level = "DANGER"
+                alert_level = "EMERGENCY"
             elif mean_prob >= 0.50:
                 alert_level = "WARNING"
             elif mean_prob >= 0.25:
                 alert_level = "WATCH"
             else:
-                alert_level = "CLEAR"
+                alert_level = "NORMAL"
 
             return {
                 "flood_probability": float(mean_prob),
@@ -519,7 +519,7 @@ class NewPhaseEnsemble:
             return {
                 "flood_probability": 0.0,
                 "variance": 1.0,
-                "alert_level": "CLEAR",
+                "alert_level": "NORMAL",
                 "method": "fallback_exception",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }

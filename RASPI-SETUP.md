@@ -78,11 +78,6 @@ sudo usermod -aG docker  rapidrelay
 cd /home/rapidrelay
 sudo -u rapidrelay git clone https://github.com/liamsandiego/v0-flood-response-system.git RapidRelay
 cd RapidRelay
-
-# Clone NewPhase branch (ML models + ChirpStack config)
-sudo -u rapidrelay git clone --branch NewPhase --single-branch \
-  https://github.com/Ranga428/Rapid-Relay-Pre-Prototype.git \
-  Rapid-Relay-NewPhase
 ```
 
 ---
@@ -130,11 +125,6 @@ LOCAL_DB_PATH=/home/rapidrelay/db/local.db
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-
-# ML CONFIGURATION (NewPhase)
-ML_MODE=sim                       # 'sim' for testing, 'real' for production
-ML_MODEL_TYPE=lgbm                # 'lgbm' | 'xgboost' | 'rf' | 'ensemble'
-ML_SCHEDULE_INTERVAL_H=12         # Hours between batch predictions
 
 # LORA CONFIGURATION
 LORA_MODE=mqtt                    # 'mqtt' | 'serial' | 'simulate'
@@ -329,40 +319,29 @@ LORA_SERIAL_PORT=/dev/ttyUSB0
 | ChirpStack not starting | `docker compose -f chirpstack/docker-compose.yml logs chirpstack` |
 | Dashboard can't connect to backend | Check `http://localhost:8001/health` |
 | Readings not syncing to Supabase | `python sync_engine.py --once --dry-run`, check `.env` credentials |
-| LGBM model not found | Ensure `Rapid-Relay-NewPhase/` is cloned, run `python data_layer.py --init` |
 | `paho-mqtt not installed` | `pip install paho-mqtt` in venv |
-| ML predictions showing "rule_based" | Need 48+ hours of data before ML kicks in |
 | ChirpStack frequency mismatch | Verify region is `us915_0` in docker-compose.yml |
 
 ---
 
-## NewPhase ML Integration
+## Flood Prediction Algorithm
 
-The backend uses the **NewPhase ML pipeline** for flood prediction:
+The backend uses **rule-based flood prediction** for alert generation:
 
-### Models (in `Rapid-Relay-NewPhase/flood_preprototype/model/`)
-| Model | File | Features |
-|-------|------|----------|
-| LightGBM (primary) | `flood_lgbm_sensor.pkl` | 27 sensor features |
-| XGBoost (fallback) | `flood_xgb_sensor.pkl` | 27 sensor features |
-| RandomForest | `flood_rf_sensor.pkl` | 27 sensor features |
-
-### Feature Engineering
-The `backend/app/services/newphase_adapter.py` computes 27 features including:
-- Water level stats (max, slope, std, lag)
-- Soil moisture trends
-- Humidity patterns
-- Seasonal encoding (sin/cos for month/week)
-- Cross-sensor interactions
+### Algorithm
+- **Water Level Analysis**: Real-time measurements from LoRa sensors
+- **Weighted Thresholds**: Based on historical flood data from Obando
+- **Feature Fusion**: Sensor aggregation with Earth Observation indices
+- **Alert Levels**: Green → Yellow → Orange → Red
 
 ### Minimum Data Requirements
-- **48 hours** of sensor data before ML predictions activate
-- Uses rule-based fallback until sufficient data collected
-- Buffer size: 336 samples (14 days hourly) for full feature computation
+- **Immediate activation**: Rules-based system works with any data volume
+- **No training period**: Predictions start immediately on first sensor reading
+- **Fallback always active**: Works offline without external models or APIs
 
-### Verifying ML is Working
+### Verifying Flood Predictions
 ```bash
-curl http://localhost:8001/api/predictions/status
-# Should show: model_loaded: true, model_type: "lgbm", buffer_size: N
+curl http://localhost:8001/api/predictions/latest
+# Returns current flood risk level and sensor data
 ```
 

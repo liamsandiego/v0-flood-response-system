@@ -58,7 +58,7 @@ def get_connection(path: Path | None = None) -> sqlite3.Connection:
     p.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(p), timeout=10, check_same_thread=False)
     conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA synchronous = FULL")
     conn.execute("PRAGMA cache_size = -64000")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA temp_store = MEMORY")
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS readings_local (
     raw_mm          INTEGER,
     validated_m     REAL,
     uncertainty     REAL,
-    alert_level     TEXT    DEFAULT 'NORMAL',
+    alert_level     TEXT    DEFAULT 'CLEAR',
     requires_human  BOOLEAN DEFAULT 0,
     explanation     TEXT,
     constraint_pass BOOLEAN DEFAULT 1,

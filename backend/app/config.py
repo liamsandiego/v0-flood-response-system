@@ -43,12 +43,13 @@ SENSOR_THRESHOLDS = {
     "rainfall": {"warning": 7.5, "critical": 30},
 }
 
-# Alert thresholds
+# Alert thresholds (maps to enum: NORMAL|WATCH|WARNING|EMERGENCY)
 ALERT_THRESHOLDS = {
-    "CLEAR": 0.0,
+    "NORMAL": 0.0,
     "WATCH": 0.40,
     "WARNING": 0.60,
-    "DANGER": 0.80,
+    "DANGER": 0.80,     # legacy key, maps to EMERGENCY
+    "EMERGENCY": 0.80,
 }
 
 # CORS origins

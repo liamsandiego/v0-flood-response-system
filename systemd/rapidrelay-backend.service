@@ -1,0 +1,22 @@
+[Unit]
+Description=RapidRelay FastAPI Backend (Predictions & WebSocket)
+After=network.target
+Wants=rapidrelay-database.service
+
+[Service]
+Type=simple
+User=rapidrelay
+WorkingDirectory=/home/grouptba/RapidRelay/backend
+Environment="PATH=/home/grouptba/RapidRelay/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="LOCAL_DB_PATH=/home/rapidrelay/db/local.db"
+ExecStart=/home/grouptba/RapidRelay/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 1
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=always
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rapidrelay-backend
+
+[Install]
+WantedBy=multi-user.target

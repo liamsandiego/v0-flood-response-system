@@ -13,7 +13,7 @@ echo "  RapidRelay — Stopping all services..."
 echo "========================================================"
 
 # Kill Python processes via PID files
-for service in lora_bridge sync_engine backend ml_pipeline; do
+for service in lora_bridge sync_engine backend; do
   PID_FILE="$PID_DIR/${service}.pid"
   if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")

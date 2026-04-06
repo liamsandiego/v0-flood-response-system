@@ -1,0 +1,8 @@
+[Unit]
+Description=RapidRelay Flood Early Warning System (All Services)
+After=network.target
+
+[Install]
+WantedBy=multi-user.target
+
+[Target]

@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 
 from app.config import CORS_ORIGINS, WS_BROADCAST_INTERVAL
 from app.database import init_db
-from app.routers import sensors, eo, himawari, alerts, websocket, predictions, ai
+from app.routers import sensors, eo, himawari, alerts, websocket, predictions, ai, sync_status
 from app.services.simulator import simulator
 from app.services.prediction_service import prediction_service
 from app.services.ws_manager import ws_manager
@@ -200,6 +200,7 @@ app.include_router(himawari.router, prefix="/api/himawari", tags=["Himawari"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["Alerts"])
 app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
 app.include_router(websocket.router, tags=["WebSocket"])
+app.include_router(sync_status.router, tags=["Sync Status"])
 
 
 @app.get("/", tags=["Health"])

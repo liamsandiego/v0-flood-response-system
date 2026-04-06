@@ -108,15 +108,11 @@ echo -e "\n${BLUE}[3/8] Installing Python dependencies...${NC}"
 
 pip install --upgrade pip wheel setuptools
 
-# Install backend requirements
+# Install backend requirements (includes optional ML packages)
 if [ -f "$ROOT/backend/requirements.txt" ]; then
     pip install -r "$ROOT/backend/requirements.txt"
     echo -e "${GREEN}  [✓] Backend dependencies installed${NC}"
 fi
-
-# Install ML dependencies (NewPhase)
-echo -e "${YELLOW}  [→] Installing ML packages (LightGBM, XGBoost, scikit-learn)...${NC}"
-pip install lightgbm xgboost scikit-learn joblib pandas numpy
 
 # Install LoRa dependencies
 echo -e "${YELLOW}  [→] Installing LoRa/MQTT packages...${NC}"
@@ -170,7 +166,6 @@ if [ ! -f "$ROOT/.env" ]; then
 # RapidRelay Configuration
 LOCAL_DB_PATH=/home/rapidrelay/db/local.db
 LORA_MODE=mqtt
-ML_MODE=sim
 SYNC_INTERVAL_S=300
 OLLAMA_MODEL=llama3.2:3b
 EOF

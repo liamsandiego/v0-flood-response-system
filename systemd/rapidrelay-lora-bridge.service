@@ -1,0 +1,23 @@
+[Unit]
+Description=RapidRelay LoRa Bridge (MQTT/Sensor Pipeline)
+After=network.target
+Wants=rapidrelay-database.service
+
+[Service]
+Type=simple
+User=rapidrelay
+WorkingDirectory=/home/grouptba/RapidRelay
+Environment="PATH=/home/grouptba/RapidRelay/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="LOCAL_DB_PATH=/home/rapidrelay/db/local.db"
+Environment="LORA_MODE=mqtt"
+ExecStart=/home/grouptba/RapidRelay/.venv/bin/python /home/grouptba/RapidRelay/lora_bridge.py
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=always
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lora_bridge
+
+[Install]
+WantedBy=multi-user.target

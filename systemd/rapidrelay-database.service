@@ -1,0 +1,19 @@
+[Unit]
+Description=RapidRelay Database Initialization
+Before=rapidrelay-lora-bridge.service rapidrelay-sync-engine.service rapidrelay-backend.service
+After=network.target
+
+[Service]
+Type=oneshot
+User=rapidrelay
+WorkingDirectory=/home/grouptba/RapidRelay
+Environment="PATH=/home/grouptba/RapidRelay/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="LOCAL_DB_PATH=/home/rapidrelay/db/local.db"
+ExecStart=/home/grouptba/RapidRelay/.venv/bin/python /home/grouptba/RapidRelay/data_layer.py --init
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rapidrelay-database
+
+[Install]
+WantedBy=multi-user.target

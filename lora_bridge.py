@@ -157,7 +157,7 @@ def predict_via_backend(reading_data: dict) -> tuple[str, float | None, bool] | 
             level = data.get("alert_level", "CLEAR")
             prob = data.get("flood_probability", 0.0)
             # Map to lora_bridge levels
-            level_map = {"CLEAR": "NORMAL", "WATCH": "WATCH", "WARNING": "WARNING", "DANGER": "EMERGENCY"}
+            level_map = {"CLEAR": "CLEAR", "WATCH": "WATCH", "WARNING": "WARNING", "DANGER": "DANGER"}
             return level_map.get(level, level), prob, False
     except Exception:
         pass
@@ -198,14 +198,18 @@ def predict_alert_level(
                 prob = result["mean_prob"]
                 variance = result.get("variance", 0)
 
-                # Map probability to alert level (aligned with backend)
+                # Map probability to alert level (enum: NORMAL|WATCH|WARNING|EMERGENCY)
                 if prob >= 0.75:
+            level = "DANGER"
                     level = "DANGER"
                 elif prob >= 0.50:
+            level = "WARNING"
                     level = "WARNING"
                 elif prob >= 0.25:
+            level = "WATCH"
                     level = "WATCH"
                 else:
+            level = "CLEAR"
                     level = "CLEAR"
 
                 # Require human if high variance between models
