@@ -7,22 +7,26 @@ echo Staging all changes...
 git add -A
 echo.
 echo Committing changes...
-git commit -m "fix: Simplify Supabase client to fix auth issues
+git commit -m "fix: Simplify Supabase client and add debug endpoint
 
-- Reverted supabase.ts to simple direct createClient (removed Proxy pattern that was causing auth issues)
-- Supabase client now initializes properly with NEXT_PUBLIC_ env vars
-- Added debug logging to help troubleshoot deployment issues
-- Auth should now work correctly on Vercel deployment
+- Reverted supabase.ts to simple direct createClient (removed Proxy that broke auth)
+- Added debug info to /api/sync-status endpoint to diagnose deployment issues
+- After deploy, visit your-domain.vercel.app/api/sync-status to see env var status
 
-Previous fixes still in place:
-- Correct column name mapping for obando_environmental_data table
-- Stable Groq model (llama-3.3-70b-versatile)
-- Serverless detection for SQLite routes
+Test the deployment:
+1. Push these changes
+2. Visit https://YOUR_APP.vercel.app/api/sync-status
+3. Check if supabaseTest.connected is true
+4. If false, the debug info will show which env vars are missing
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 echo.
 echo Pushing to remote...
 git push
 echo.
-echo Done!
+echo ========================================
+echo IMPORTANT: After Vercel deploys, visit:
+echo https://YOUR_APP.vercel.app/api/sync-status
+echo to check if Supabase is connecting properly
+echo ========================================
 pause
