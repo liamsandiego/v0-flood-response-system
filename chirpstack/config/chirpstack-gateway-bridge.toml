@@ -1,0 +1,28 @@
+# ChirpStack Gateway Bridge configuration
+# Receives UDP from TTGO T-Beam → MQTT → ChirpStack
+# Region: US915 (Ra-08h + TTGO T-Beam compatibility)
+
+[general]
+  log_level="info"
+
+[backend]
+  type="semtech_udp"
+
+  [backend.semtech_udp]
+    udp_bind = "0.0.0.0:1700"  # TTGO T-Beam points here
+
+[integration]
+  marshaler="json"
+
+  [integration.mqtt]
+    event_topic_template   = "us915_0/gateway/{{ .GatewayID }}/event/{{ .EventType }}"
+    command_topic_template  = "us915_0/gateway/{{ .GatewayID }}/command/#"
+    state_retained         = true
+
+    [integration.mqtt.auth]
+      type = "generic"
+
+      [integration.mqtt.auth.generic]
+        server   = "tcp://mosquitto:1883"
+        username = ""
+        password = ""

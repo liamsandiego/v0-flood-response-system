@@ -1,0 +1,21 @@
+[Unit]
+Description=RapidRelay ML Pipeline Scheduler (LGBM flood prediction)
+After=rapidrelay-backend.service
+
+[Service]
+Type=simple
+User=rapidrelay
+Group=rapidrelay
+WorkingDirectory=/home/rapidrelay/RapidRelay/Rapid-Relay-NewPhase/flood_preprototype
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/home/rapidrelay/RapidRelay/.env
+ExecStart=/home/rapidrelay/RapidRelay/.venv/bin/python main.py \
+          --schedule --interval 12 --mode sim
+Restart=on-failure
+RestartSec=60s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rapidrelay-ml
+
+[Install]
+WantedBy=multi-user.target

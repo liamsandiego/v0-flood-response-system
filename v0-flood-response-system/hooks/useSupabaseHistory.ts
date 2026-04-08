@@ -1,7 +1,7 @@
 // =============================================================================
 // RapidRelay – Supabase History Hook
 //
-// Fetches historical sensor readings from Supabase on mount so the Data tab
+// Fetches historical environmental readings from Supabase on mount so the app
 // has persistent records that survive page reloads. Also hydrates the Zustand
 // store with the last batch of readings so sensor cards show data immediately.
 // =============================================================================
@@ -14,48 +14,42 @@ import { useFloodStore } from "@/stores/sensorStore";
 import type { SensorSnapshot, SensorReading } from "@/lib/types";
 
 interface SupabaseReading {
-  sensor_id: string;
-  water_level: number | null;
-  rainfall: number | null;
-  humidity: number | null;
-  soil_moisture: number | null;
-  temperature: number | null;
-  latitude: number;
-  longitude: number;
-  is_valid: boolean;
+  id: number;
   timestamp: string;
+  soil: number;
+  temperature: number;
+  humidity: number;
+  pressure: number;
+  distance_m: number | null;
 }
 
 /**
- * Convert a batch of Supabase sensor_readings rows (same timestamp group)
- * into a SensorSnapshot for the Data tab history array.
+ * Convert a batch of Supabase obando_environmental_data rows
+ * into a SensorSnapshot for the History tab.
  */
 function rowsToSnapshot(rows: SupabaseReading[]): SensorSnapshot | null {
   if (rows.length === 0) return null;
 
-  // Average across all nodes in this tick
+  // Average across all readings in this tick (usually just 1 for this table)
   let waterLevel = 0;
-  let rainfall = 0;
-  let humidity = 0;
   let soilMoisture = 0;
+  let humidity = 0;
   let count = 0;
 
   for (const r of rows) {
-    waterLevel += r.water_level ?? 0;
-    rainfall += r.rainfall ?? 0;
+    waterLevel += r.distance_m ?? 0;
+    soilMoisture += r.soil ?? 0;
     humidity += r.humidity ?? 0;
-    soilMoisture += r.soil_moisture ?? 0;
     count++;
   }
 
   if (count === 0) return null;
   waterLevel /= count;
-  rainfall /= count;
-  humidity /= count;
   soilMoisture /= count;
+  humidity /= count;
 
   const ts = new Date(rows[0].timestamp);
-  const risk = Math.min(1, (waterLevel / 2.0) * 0.5 + (rainfall / 30) * 0.3 + (soilMoisture / 100) * 0.2);
+  const risk = Math.min(1, (waterLevel / 2.0) * 0.5 + (soilMoisture / 100) * 0.3 + (humidity / 100) * 0.2);
 
   const mkReading = (val: number, warnThresh: number, critThresh: number): SensorReading => ({
     value: val,
@@ -70,7 +64,7 @@ function rowsToSnapshot(rows: SupabaseReading[]): SensorSnapshot | null {
     waterLevel: mkReading(waterLevel, 1.0, 1.8),
     soilMoisture: mkReading(soilMoisture, 70, 90),
     humidity: mkReading(humidity, 85, 95),
-    rainfall,
+    rainfall: 0,
     floodExtent: Math.min(1, waterLevel / 2.5),
     wetnessTrend: 0,
     risk,
@@ -79,8 +73,8 @@ function rowsToSnapshot(rows: SupabaseReading[]): SensorSnapshot | null {
 }
 
 /**
- * Fetch recent sensor history from Supabase and return as SensorSnapshot[].
- * Groups readings by timestamp (rounded to nearest 5s) to batch per-tick.
+ * Fetch recent environmental history from Supabase and return as SensorSnapshot[].
+ * Groups readings by timestamp (rounded to nearest minute) to batch per-tick.
  */
 export function useSupabaseHistory(
   setHistory: React.Dispatch<React.SetStateAction<SensorSnapshot[]>>
@@ -92,26 +86,32 @@ export function useSupabaseHistory(
     loaded.current = true;
 
     async function fetchHistory() {
+      const timeout = setTimeout(() => {
+        console.warn("[History] Supabase query timed out after 5s");
+      }, 5000);
+
       try {
-        // Fetch last 500 readings (covers ~8 minutes at 5 nodes / 5s interval)
+        // Fetch from obando_environmental_data (the actual table with data)
         const { data, error } = await supabase
-          .from("sensor_readings")
-          .select("sensor_id,water_level,rainfall,humidity,soil_moisture,temperature,latitude,longitude,is_valid,timestamp")
+          .from("obando_environmental_data")
+          .select("id, timestamp, soil, temperature, humidity, pressure, distance_m")
           .order("timestamp", { ascending: false })
           .limit(500);
+
+        clearTimeout(timeout);
 
         if (error || !data || data.length === 0) {
           console.log("[History] No Supabase data available, starting fresh");
           return;
         }
 
-        console.log(`[History] Loaded ${data.length} readings from Supabase`);
+        console.log(`[History] Loaded ${data.length} readings from obando_environmental_data`);
 
-        // Group by timestamp (rounded to 5s buckets)
+        // Group by timestamp (rounded to 1 minute buckets)
         const groups = new Map<string, SupabaseReading[]>();
         for (const row of data as SupabaseReading[]) {
           const ts = new Date(row.timestamp);
-          const bucket = new Date(Math.round(ts.getTime() / 5000) * 5000).toISOString();
+          const bucket = new Date(Math.round(ts.getTime() / 60000) * 60000).toISOString();
           const existing = groups.get(bucket) || [];
           existing.push(row);
           groups.set(bucket, existing);
@@ -130,39 +130,43 @@ export function useSupabaseHistory(
           console.log(`[History] Hydrated ${snapshots.length} snapshots from Supabase`);
         }
 
-        // Also hydrate the Zustand store with the latest readings
-        // so sensor cards show data immediately
-        const latest = data.slice(0, 5); // Last 5 readings = last tick (5 nodes)
-        if (latest.length > 0) {
-          const features = latest.map((r: SupabaseReading) => ({
+        // Also hydrate the Zustand store with the latest reading
+        // so sensor cards show data immediately (using a mock sensor location for Obando)
+        const latest = data[0] as SupabaseReading;
+        if (latest) {
+          const OBANDO_LAT = 14.7094;
+          const OBANDO_LNG = 120.9358;
+          
+          const feature = {
             type: "Feature" as const,
             geometry: {
               type: "Point" as const,
-              coordinates: [r.longitude, r.latitude] as [number, number],
+              coordinates: [OBANDO_LNG, OBANDO_LAT] as [number, number],
             },
             properties: {
-              sensor_id: r.sensor_id,
-              name: r.sensor_id,
+              sensor_id: "obando-main",
+              name: "Obando Environmental Sensor",
               type: "multi",
-              latitude: r.latitude,
-              longitude: r.longitude,
-              water_level: r.water_level,
-              rainfall: r.rainfall,
-              humidity: r.humidity,
-              temperature: r.temperature,
-              soil_moisture: r.soil_moisture,
-              is_valid: r.is_valid,
-              timestamp: r.timestamp,
+              latitude: OBANDO_LAT,
+              longitude: OBANDO_LNG,
+              water_level: latest.distance_m,
+              rainfall: null,
+              humidity: latest.humidity,
+              temperature: latest.temperature,
+              soil_moisture: latest.soil,
+              is_valid: true,
+              timestamp: latest.timestamp,
               flood_mode: false,
             },
-          }));
+          };
 
           useFloodStore.getState().updateSensors({
             type: "FeatureCollection",
-            features,
+            features: [feature],
           });
         }
       } catch (err) {
+        clearTimeout(timeout);
         console.warn("[History] Failed to fetch from Supabase:", err);
       }
     }

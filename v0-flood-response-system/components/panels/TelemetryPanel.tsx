@@ -52,6 +52,7 @@ export default function TelemetryPanel() {
   const criticalMode = useFloodStore((s) => s.criticalMode);
   const wsStatus = useFloodStore((s) => s.wsStatus);
   const tick = useFloodStore((s) => s.tick);
+  const unit = useFloodStore((s) => s.unit);
 
   // Sort sensors by alert severity
   const sensors = [...sensorData.features]
@@ -145,7 +146,9 @@ export default function TelemetryPanel() {
                       label="WATER"
                       value={
                         sensor.water_level != null
-                          ? `${sensor.water_level.toFixed(2)}m`
+                          ? unit === "metric"
+                            ? `${sensor.water_level.toFixed(2)}m`
+                            : `${(sensor.water_level * 3.28084).toFixed(2)}ft`
                           : "N/A"
                       }
                       trend={trend}

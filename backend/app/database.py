@@ -71,6 +71,29 @@ class AlertDB(Base):
     acknowledged_at = Column(DateTime(timezone=True), nullable=True)
 
 
+class ReadingsLocalDB(Base):
+    """
+    Local-first readings table — primary data store for LoRa sensor pipeline.
+    Mirrors schema.sql readings_local; synced up to Supabase by sync_engine.py.
+    """
+    __tablename__ = "readings_local"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sensor_id = Column(String(64), nullable=False, index=True)
+    raw_mm = Column(Integer, nullable=True)          # raw LoRa value (mm)
+    validated_m = Column(Float, nullable=True)        # converted meters
+    uncertainty = Column(Float, nullable=True)        # ensemble variance
+    alert_level = Column(String(16), default="NORMAL")
+    requires_human = Column(Boolean, default=False)   # high uncertainty flag
+    explanation = Column(Text, nullable=True)         # Woody JSON output
+    constraint_pass = Column(Boolean, default=True)  # passed hard constraints
+    constraint_note = Column(Text, nullable=True)    # drop/flag reason
+    synced = Column(Boolean, default=False)           # pushed to Supabase
+    cloud_id = Column(String(64), nullable=True)      # Supabase UUID
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+
 # ---------------------------------------------------------------------------
 # Engine + Session Factory
 # ---------------------------------------------------------------------------

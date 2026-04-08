@@ -85,12 +85,34 @@ export function useHimawari(
     setActiveIndex(framesRef.current.length - 1)
   }, [])
 
-  // Animation loop — just increments the index
+  // Animation loop using requestAnimationFrame for smoother playback
   useEffect(() => {
     if (!enabled || !animating || frames.length === 0) return
-    const interval = setInterval(nextFrame, animationSpeed)
-    return () => clearInterval(interval)
+    let lastTime = 0
+    let rafId: number
+    const tick = (timestamp: number) => {
+      if (timestamp - lastTime >= animationSpeed) {
+        nextFrame()
+        lastTime = timestamp
+      }
+      rafId = requestAnimationFrame(tick)
+    }
+    rafId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId)
   }, [enabled, animating, animationSpeed, frames.length, nextFrame])
+
+  // Prefetch adjacent frames for instant navigation
+  useEffect(() => {
+    if (!enabled || frames.length === 0) return
+    const prefetchIndices = [
+      (activeIndex + 1) % frames.length,
+      (activeIndex - 1 + frames.length) % frames.length,
+    ]
+    prefetchIndices.forEach((idx) => {
+      const img = new Image()
+      img.src = frames[idx].url
+    })
+  }, [enabled, activeIndex, frames])
 
   const currentFrame = activeIndex >= 0 && activeIndex < frames.length
     ? frames[activeIndex]

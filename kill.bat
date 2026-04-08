@@ -1,29 +1,21 @@
 @echo off
-echo ========================================
-echo   RapidRelay - Kill All Processes
-echo ========================================
+echo =========================================================
+echo   RAPID RELAY — Kill All Services
+echo =========================================================
 echo.
 
-echo Killing Node.js processes...
+echo [1/3] Stopping Node.js (dashboard)...
 taskkill /F /IM node.exe >nul 2>&1
-if %errorlevel%==0 (echo   Killed node.exe) else (echo   No node.exe running)
 
-echo Killing Python processes...
-taskkill /F /IM python3.12.exe >nul 2>&1
-if %errorlevel%==0 (echo   Killed python3.12.exe) else (echo   No python3.12.exe running)
+echo [2/3] Stopping Python (bridge + sync)...
 taskkill /F /IM python.exe >nul 2>&1
+taskkill /F /IM python3.exe >nul 2>&1
+
+echo [3/3] Stopping Ollama...
+taskkill /F /IM ollama.exe >nul 2>&1
+taskkill /F /IM ollama_llama_server.exe >nul 2>&1
 
 echo.
-echo Cleaning .next cache...
-if exist "v0-flood-response-system\.next" (
-    rmdir /s /q "v0-flood-response-system\.next" >nul 2>&1
-    echo   .next deleted
-) else (
-    echo   .next already clean
-)
-
-echo.
-echo All processes killed and cache cleaned.
-echo You can now run: start.bat
-echo.
-pause
+echo All services stopped.
+echo Run start.bat to restart.
+timeout /t 2 /nobreak >nul

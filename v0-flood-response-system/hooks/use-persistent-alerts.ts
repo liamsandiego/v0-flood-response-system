@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import type { AlertRecord } from "@/lib/types"
+import type { PostgrestError } from "@supabase/supabase-js"
 import { loadAlerts, saveAlerts } from "@/lib/storage"
 import { supabase } from "@/lib/supabase"
 
@@ -17,6 +18,12 @@ export function usePersistentAlerts() {
   // Load from Supabase on mount, fall back to localStorage
   useEffect(() => {
     const load = async () => {
+      const timeout = setTimeout(() => {
+        console.warn("[PersistentAlerts] Supabase query timed out after 5s")
+        setAlerts(loadAlerts())
+        setLoaded(true)
+      }, 5000)
+
       try {
         const { data, error } = await supabase
           .from("alerts")
@@ -24,8 +31,10 @@ export function usePersistentAlerts() {
           .order("created_at", { ascending: false })
           .limit(200)
 
+        clearTimeout(timeout)
+
         if (!error && data && data.length > 0) {
-          const mapped: AlertRecord[] = data.map((row) => ({
+          const mapped: AlertRecord[] = data.map((row: any) => ({
             id: String(row.id),
             level: row.alert_level as AlertRecord["level"],
             title: row.title,
@@ -41,10 +50,13 @@ export function usePersistentAlerts() {
         } else {
           setAlerts(loadAlerts())
         }
-      } catch {
+      } catch (err) {
+        clearTimeout(timeout)
+        console.error("[PersistentAlerts] Error loading alerts:", err)
         setAlerts(loadAlerts())
+      } finally {
+        setLoaded(true)
       }
-      setLoaded(true)
     }
     load()
   }, [])
@@ -64,7 +76,7 @@ export function usePersistentAlerts() {
       sensor_snapshot: alert.sensorSnapshot,
       persistent: alert.persistent,
       source: "dashboard",
-    }).then(({ error }) => {
+    }).then(({ error }: { error: PostgrestError | null }) => {
       if (error) console.warn("[Supabase] Failed to persist alert:", error.message)
     })
   }, [])
@@ -86,7 +98,7 @@ export function usePersistentAlerts() {
       persistent: a.persistent,
       source: "dashboard",
     }))
-    supabase.from("alerts").insert(rows).then(({ error }) => {
+    supabase.from("alerts").insert(rows).then(({ error }: { error: PostgrestError | null }) => {
       if (error) console.warn("[Supabase] Failed to persist alerts:", error.message)
     })
   }, [])
@@ -105,7 +117,7 @@ export function usePersistentAlerts() {
       supabase.from("alerts")
         .update({ acknowledged: true, acknowledged_at: new Date().toISOString() })
         .eq("id", numId)
-        .then(({ error }) => {
+        .then(({ error }: { error: PostgrestError | null }) => {
           if (error) console.warn("[Supabase] Failed to acknowledge alert:", error.message)
         })
     }
@@ -120,7 +132,7 @@ export function usePersistentAlerts() {
     // Also remove non-persistent acknowledged alerts from Supabase
     supabase.from("alerts").delete()
       .or("persistent.eq.false,acknowledged.eq.true")
-      .then(({ error }) => {
+      .then(({ error }: { error: PostgrestError | null }) => {
         if (error) console.warn("[Supabase] Failed to clear non-persistent alerts:", error.message)
       })
   }, [])
@@ -129,7 +141,7 @@ export function usePersistentAlerts() {
     setAlerts([])
     saveAlerts([])
     // Delete all from Supabase
-    supabase.from("alerts").delete().gte("id", 0).then(({ error }) => {
+    supabase.from("alerts").delete().gte("id", 0).then(({ error }: { error: PostgrestError | null }) => {
       if (error) console.warn("[Supabase] Failed to clear alerts:", error.message)
     })
   }, [])

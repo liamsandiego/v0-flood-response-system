@@ -1,0 +1,21 @@
+[Unit]
+Description=RapidRelay Cloud Sync Engine (SQLite → Supabase)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rapidrelay
+Group=rapidrelay
+WorkingDirectory=/home/rapidrelay/RapidRelay
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/home/rapidrelay/RapidRelay/.env
+ExecStart=/home/rapidrelay/RapidRelay/.venv/bin/python sync_engine.py
+Restart=on-failure
+RestartSec=30s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rapidrelay-sync
+
+[Install]
+WantedBy=multi-user.target

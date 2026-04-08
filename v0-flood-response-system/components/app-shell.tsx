@@ -18,14 +18,12 @@ import dynamic from "next/dynamic"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ErrorBoundary } from "@/components/error-boundary"
-import { MapErrorBoundary } from "@/components/globe/GlobeMap"
+import { MapErrorBoundary } from "@/components/globe/MapErrorBoundary"
 import AIInterpretationPanel from "@/components/panels/AIInterpretationPanel"
 import { SensorGraphs } from "@/components/sensor-graphs"
 import { EvacuationTips } from "@/components/evacuation-tips"
-import { SmsBroadcastLog } from "@/components/sms-broadcast-log"
 import { DataTab } from "@/components/data-tab"
 import { AlertHistory } from "@/components/alert-history"
-import { AlertControls } from "@/components/alert-controls"
 import { PwaInstallButton } from "@/components/pwa-install-button"
 import { NotificationButton } from "@/components/notification-button"
 import { MapControls } from "@/components/map/MapControls"
@@ -33,18 +31,17 @@ import {
   Droplets, Waves, ThermometerSun, Clock, Radio,
   LogOut, User, ShieldAlert, Activity,
   AlertTriangle, CloudRain, Maximize, TrendingUp, TrendingDown, Minus, AlertOctagon,
-  Map as MapIcon, Shield, History, Megaphone, Database, Settings,
+  Map as MapIcon, Shield, History, Database,
   Layers, ChevronUp, ChevronDown, X, Navigation,
 } from "lucide-react"
 import { FloatingPanel } from "@/components/floating-panel"
 import { useAuth } from "@/components/auth-provider"
 import { useNotifications } from "@/hooks/use-notifications"
-import { usePersistentAlerts } from "@/hooks/use-persistent-alerts"
 import { useMapLayers } from "@/hooks/use-map-layers"
-import { useRainViewer } from "@/hooks/use-rainviewer"
 import { useHimawari } from "@/hooks/use-himawari"
 import { useWebSocket } from "@/hooks/useWebSocket"
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime"
+import { useLocalSSE } from "@/hooks/useLocalSSE"
 import { useSupabaseHistory } from "@/hooks/useSupabaseHistory"
 import { useFloodStore } from "@/stores/sensorStore"
 import { formatSensorValue } from "@/lib/conversion"
@@ -114,15 +111,14 @@ function GlassCard({
 // =============================================================================
 // Tab definitions
 // =============================================================================
-type TabId = "map" | "safety" | "history" | "broadcasts" | "data" | "controls"
+type TabId = "map" | "safety" | "history" | "data" | "trends"
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode; iconTouch: React.ReactNode }[] = [
   { id: "map", label: "Map", icon: <MapIcon className="h-4 w-4" />, iconTouch: <MapIcon className="h-6 w-6" /> },
   { id: "safety", label: "Safety", icon: <Shield className="h-4 w-4" />, iconTouch: <Shield className="h-6 w-6" /> },
   { id: "history", label: "History", icon: <History className="h-4 w-4" />, iconTouch: <History className="h-6 w-6" /> },
-  { id: "broadcasts", label: "Alerts", icon: <Megaphone className="h-4 w-4" />, iconTouch: <Megaphone className="h-6 w-6" /> },
   { id: "data", label: "Data", icon: <Database className="h-4 w-4" />, iconTouch: <Database className="h-6 w-6" /> },
-  { id: "controls", label: "Controls", icon: <Settings className="h-4 w-4" />, iconTouch: <Settings className="h-6 w-6" /> },
+  { id: "trends", label: "Trends", icon: <TrendingUp className="h-4 w-4" />, iconTouch: <TrendingUp className="h-6 w-6" /> },
 ]
 
 // =============================================================================
@@ -132,21 +128,24 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode; iconTouch: React.
 export default function AppShell() {
   const { user, logout } = useAuth()
   const { sendNotification } = useNotifications()
-  const { alerts, addAlerts, acknowledgeAlert, clearAll } = usePersistentAlerts()
   const { layers, actions: layerActions } = useMapLayers()
-  const rainViewer = useRainViewer()
   const himawari = useHimawari(
     layers.himawari.product,
     layers.himawari.enabled,
     layers.himawari.animating,
     layers.himawari.animationSpeed
   )
-  const { send: wsSend } = useWebSocket()
-  useSupabaseRealtime()  // Fallback: subscribes to Supabase when WebSocket is down
+  const isLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE === "true"
+
+  // Data source: Supabase Realtime is primary, SSE for local mode
+  // WebSocket disabled - was used for legacy mock data system
+  const sseStatus = useLocalSSE()
+  useSupabaseRealtime()  // Primary: subscribes to Supabase for live sensor data
   const wsStatus = useFloodStore((s) => s.wsStatus)
   const sensorData = useFloodStore((s) => s.sensorData)
   const prediction = useFloodStore((s) => s.prediction)
   const sensorHistory = useFloodStore((s) => s.sensorHistory)
+  const unit = useFloodStore((s) => s.unit)
 
   const [activeTab, setActiveTab] = useState<TabId>("map")
   const [snapshot, setSnapshot] = useState<SensorSnapshot | null>(null)
@@ -162,51 +161,27 @@ export default function AppShell() {
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false)
   const [mobileLayersOpen, setMobileLayersOpen] = useState(false)
 
-  // Touch device detection — forces mobile layout on all touch devices
-  // regardless of screen width (tablets in landscape are often >1024px)
+  // Mobile layout detection — use screen width as primary signal.
+  // Windows PCs always report maxTouchPoints > 0 so we can't use that alone.
+  // Mobile = narrow screen (< 1024px) OR coarse pointer (finger) on a small screen.
   const [isTouch, setIsTouch] = useState(false)
   useEffect(() => {
-    setIsTouch(navigator.maxTouchPoints > 0 || 'ontouchstart' in window)
+    const check = () => {
+      const narrow = window.innerWidth < 1024
+      const coarsePointer = window.matchMedia("(pointer: coarse)").matches
+      setIsTouch(narrow && coarsePointer)
+    }
+    check()
+    window.addEventListener("resize", check)
+    return () => window.removeEventListener("resize", check)
   }, [])
 
   const startTime = useRef(Date.now())
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   // Stable refs for callbacks
-  const addAlertsRef = useRef(addAlerts)
-  addAlertsRef.current = addAlerts
   const sendNotificationRef = useRef(sendNotification)
   sendNotificationRef.current = sendNotification
-
-  // ── RainViewer animation loop ──
-  useEffect(() => {
-    if (!layers.rainViewer.enabled || !layers.rainViewer.animating) return
-    if (rainViewer.frames.length === 0) return
-    const interval = setInterval(() => {
-      rainViewer.nextFrame()
-    }, layers.rainViewer.animationSpeed)
-    return () => clearInterval(interval)
-  }, [layers.rainViewer.enabled, layers.rainViewer.animating, layers.rainViewer.animationSpeed, rainViewer.frames.length, rainViewer.nextFrame])
-
-  // ── RainViewer tile URLs for Zoom Earth pattern (all frames mounted) ──
-  const rainViewerTileUrls = useMemo(() => {
-    if (!layers.rainViewer.enabled || rainViewer.frames.length === 0) return []
-    return rainViewer.frames.map((frame) =>
-      rainViewer.getTileUrl(
-        frame,
-        layers.rainViewer.colorScheme,
-        layers.rainViewer.smooth,
-        layers.rainViewer.snow
-      )
-    )
-  }, [
-    layers.rainViewer.enabled,
-    rainViewer.frames,
-    rainViewer.getTileUrl,
-    layers.rainViewer.colorScheme,
-    layers.rainViewer.smooth,
-    layers.rainViewer.snow,
-  ])
 
   // ── Himawari animation data for MapControls ──
   const himawariAnimationData = useMemo(() => ({
@@ -263,14 +238,13 @@ export default function AppShell() {
         if (mounted) setFlashSensor(null)
       }, 800)
 
-      // Evaluate alerts from real data
+      // Evaluate alerts and send push notifications only
       try {
         const thresholdAlerts = evaluateSnapshot(snap)
         const healthAlerts = evaluateSensorHealth(snap)
         const newAlerts = [...thresholdAlerts, ...healthAlerts]
 
         if (newAlerts.length > 0) {
-          addAlertsRef.current(newAlerts)
           for (const a of newAlerts) {
             sendNotificationRef.current(a.title, a.message, a.level)
           }
@@ -321,7 +295,6 @@ export default function AppShell() {
     uptime < 60 ? `${uptime}s` :
       uptime < 3600 ? `${Math.floor(uptime / 60)}m ${uptime % 60}s` :
         `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`
-  const unackCritical = alerts.filter((a) => !a.acknowledged && a.level === "critical").length
 
   // ── Sensor card renderer ──
   const renderSensorCard = (sensorId: string) => {
@@ -368,7 +341,7 @@ export default function AppShell() {
         <div className="flex items-center gap-2 mb-2">
           {getSensorIcon(sensorId)}
           <span className="text-2xl font-bold">
-            {formatSensorValue(sensorId, reading.effectiveValue, "metric")}
+            {formatSensorValue(sensorId, reading.effectiveValue, unit)}
           </span>
         </div>
         <p className="text-[11px] text-white/40 mb-1">{meta.placement}</p>
@@ -485,58 +458,7 @@ export default function AppShell() {
         </div>
       </div>
 
-      {/* Section: Analysis & Trends */}
-      <div>
-        <h2 className="text-xs font-semibold mb-2 flex items-center gap-1.5 text-purple-400 uppercase tracking-wider">
-          <Activity className="h-3.5 w-3.5" />
-          Analysis
-        </h2>
-        <div className="space-y-2">
-          {/* Flood Extent */}
-          {snapshot && (
-            <GlassCard flash={flashSensor === "all"}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Maximize className="h-4 w-4 text-purple-400" />
-                  <span className="text-sm font-semibold">Flood Extent</span>
-                </div>
-                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-purple-500/30 text-purple-300">
-                  ESTIMATED
-                </span>
-              </div>
-              <p className="text-[11px] text-white/50 mb-2">Area Coverage</p>
-              <div className="flex items-center gap-2 mb-1">
-                <Maximize className="h-4 w-4 text-purple-400" />
-                <span className="text-2xl font-bold">{(snapshot.floodExtent * 100).toFixed(1)} %</span>
-              </div>
-              <p className="text-[11px] text-white/40">Monitored Zone Coverage</p>
-            </GlassCard>
-          )}
-
-          {/* Wetness Trend */}
-          {snapshot && (
-            <GlassCard flash={flashSensor === "all"}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  {snapshot.wetnessTrend > 0 ? <TrendingUp className="h-4 w-4 text-orange-400" /> :
-                    snapshot.wetnessTrend < 0 ? <TrendingDown className="h-4 w-4 text-green-400" /> :
-                      <Minus className="h-4 w-4 text-white/40" />}
-                  <span className="text-sm font-semibold">Wetness Trend</span>
-                </div>
-              </div>
-              <p className="text-[11px] text-white/50 mb-2">Saturation Direction</p>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-2xl font-bold">
-                  {snapshot.wetnessTrend > 0 ? "Rising" : snapshot.wetnessTrend < 0 ? "Falling" : "Stable"}
-                </span>
-              </div>
-              <p className="text-[11px] text-white/40">Rate: {Math.abs(snapshot.wetnessTrend)}</p>
-            </GlassCard>
-          )}
-        </div>
-      </div>
-
-      {/* Section: AI Analysis */}
+      {/* Section: AI Interpretation */}
       <div>
         <ErrorBoundary>
           <AIInterpretationPanel />
@@ -561,8 +483,6 @@ export default function AppShell() {
             himawariFrames={himawari.frames}
             himawariActiveIndex={himawari.activeIndex}
             himawariMaxZoom={himawari.maxZoom}
-            rainViewerTileUrls={rainViewerTileUrls}
-            rainViewerActiveIndex={rainViewer.currentFrameIndex}
           />
         </MapErrorBoundary>
       </div>
@@ -642,6 +562,27 @@ export default function AppShell() {
               </Button>
             </div>
           </GlassPanel>
+
+          {/* ── LOCAL_MODE Status Banners ── */}
+          {isLocalMode && sseStatus.sensorOffline && (
+            <div className="pointer-events-auto mx-2 mt-1 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-900/80 border border-red-500/50 text-red-200 text-[11px] font-mono animate-pulse">
+              <Radio className="h-3.5 w-3.5 text-red-400 flex-shrink-0" />
+              <span className="font-bold">SENSOR OFFLINE</span>
+              <span className="text-red-300/70">— No LoRa data for &gt;30s. Check bridge.</span>
+            </div>
+          )}
+          {isLocalMode && !sseStatus.sensorOffline && sseStatus.connected && sseStatus.lastUpdate && (
+            <div className="pointer-events-auto mx-2 mt-1 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-900/50 border border-emerald-500/30 text-emerald-200 text-[11px] font-mono">
+              <Radio className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
+              <span className="font-bold">LOCAL LIVE</span>
+              <span className="text-emerald-300/70">— SQLite · {sseStatus.activeSensors} sensor{sseStatus.activeSensors !== 1 ? "s" : ""} active</span>
+              {sseStatus.unsyncedCount === 0 ? (
+                <span className="ml-auto text-emerald-400 font-bold">● CLOUD SYNC</span>
+              ) : (
+                <span className="ml-auto text-yellow-400/80">{sseStatus.unsyncedCount} unsynced</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ═══════ MAIN CONTENT AREA ═══════ */}
@@ -663,45 +604,23 @@ export default function AppShell() {
                   <ErrorBoundary>
                     <div className="dark glass-dark">
                       <AlertHistory
-                        alerts={alerts}
-                        unit="metric"
-                        onAcknowledge={acknowledgeAlert}
-                        onClearAll={clearAll}
                         userRole={user?.role ?? "viewer"}
                       />
-                    </div>
-                  </ErrorBoundary>
-                )}
-                {activeTab === "broadcasts" && (
-                  <ErrorBoundary>
-                    <div className="dark glass-dark">
-                      <SmsBroadcastLog alerts={alerts} />
                     </div>
                   </ErrorBoundary>
                 )}
                 {activeTab === "data" && (
                   <ErrorBoundary>
                     <div className="dark glass-dark">
-                      <DataTab history={history} />
+                      <DataTab />
                     </div>
                   </ErrorBoundary>
                 )}
-                {activeTab === "controls" && (
+                {activeTab === "trends" && (
                   <ErrorBoundary>
-                    {user?.role === "viewer" ? (
-                      <div className="py-8 text-center text-white/60">
-                        You do not have permission to access alert controls.
-                      </div>
-                    ) : (
-                      <div className={`dark glass-dark grid gap-4 ${isTouch ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2"}`}>
-                        <AlertControls
-                          currentStatus={overallStatus}
-                          userRole={user?.role ?? "viewer"}
-                          snapshot={snapshot}
-                        />
-                        <MapControls config={layers} actions={layerActions} rainViewer={rainViewer} himawariAnimation={himawariAnimationData} himawariHook={himawari} />
-                      </div>
-                    )}
+                    <div className="dark glass-dark">
+                      <SensorGraphs history={history} />
+                    </div>
                   </ErrorBoundary>
                 )}
               </GlassPanel>
@@ -744,7 +663,7 @@ export default function AppShell() {
             >
               <div className="p-3 dark glass-dark overflow-y-auto scrollbar-thin flex-1">
                 <ErrorBoundary>
-                  <MapControls config={layers} actions={layerActions} rainViewer={rainViewer} himawariAnimation={himawariAnimationData} himawariHook={himawari} />
+                  <MapControls config={layers} actions={layerActions} himawariAnimation={himawariAnimationData} himawariHook={himawari} />
                 </ErrorBoundary>
               </div>
             </FloatingPanel>
@@ -757,32 +676,6 @@ export default function AppShell() {
               onClick={() => setRightPanelOpen(true)}
             >
               <Layers className="h-3 w-3" /> Layers
-            </button>
-          )}
-
-          {/* BOTTOM — Live Trends */}
-          {activeTab === "map" && bottomPanelOpen && !isTouch && (
-            <FloatingPanel
-              title="Live Sensor Trends"
-              icon={<TrendingUp className="h-3.5 w-3.5 text-blue-400" />}
-              onClose={() => setBottomPanelOpen(false)}
-              className="hidden lg:flex pointer-events-auto absolute bottom-[40px] left-0 right-0 flex-col z-[15]"
-            >
-              <div className="p-3 dark glass-dark max-h-[220px] overflow-y-auto">
-                <ErrorBoundary>
-                  <SensorGraphs history={history} unit="metric" />
-                </ErrorBoundary>
-              </div>
-            </FloatingPanel>
-          )}
-
-          {/* Toggle: reopen bottom panel */}
-          {activeTab === "map" && !bottomPanelOpen && !isTouch && (
-            <button
-              className="hidden lg:block pointer-events-auto absolute bottom-[40px] left-1/2 -translate-x-1/2 px-3 py-1 text-[10px] text-white/50 hover:text-white bg-slate-900/50 backdrop-blur rounded-t-lg border border-white/10 border-b-0 z-[1]"
-              onClick={() => setBottomPanelOpen(true)}
-            >
-              Show Trends
             </button>
           )}
         </div>
@@ -801,7 +694,11 @@ export default function AppShell() {
             <div className="flex items-center gap-5 text-sm overflow-x-auto">
               <span className="flex items-center gap-2 text-blue-300 shrink-0">
                 <Waves className="h-5 w-5" />
-                <span className="font-semibold">{snapshot.waterLevel.effectiveValue.toFixed(2)}m</span>
+                <span className="font-semibold">
+                  {unit === "metric"
+                    ? `${snapshot.waterLevel.effectiveValue.toFixed(2)}m`
+                    : `${(snapshot.waterLevel.effectiveValue * 3.28084).toFixed(2)}ft`}
+                </span>
               </span>
               <span className="flex items-center gap-2 text-cyan-300 shrink-0">
                 <CloudRain className="h-5 w-5" />
@@ -843,7 +740,7 @@ export default function AppShell() {
               </h2>
               <div className="max-h-[200px] overflow-y-auto dark glass-dark">
                 <ErrorBoundary>
-                  <SensorGraphs history={history} unit="metric" />
+                  <SensorGraphs history={history} />
                 </ErrorBoundary>
               </div>
             </div>
@@ -890,32 +787,20 @@ export default function AppShell() {
             <div className="flex items-center gap-0.5 shrink-0">
               {TABS.map((tab) => {
                 const isActive = activeTab === tab.id
-                const isDisabled = tab.id === "controls" && user?.role === "viewer"
                 return (
                   <button
                     key={tab.id}
-                    disabled={isDisabled}
-                    onClick={() => {
-                      if (!isDisabled) {
-                        setActiveTab(tab.id)
-                      }
-                    }}
+                    onClick={() => setActiveTab(tab.id)}
                     className={`
                       flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all
                       ${isActive
                         ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
                         : "text-white/50 hover:text-white/80 hover:bg-white/5"
                       }
-                      ${isDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}
                     `}
                   >
                     {tab.icon}
                     <span>{tab.label}</span>
-                    {tab.id === "history" && unackCritical > 0 && (
-                      <span className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] text-white font-bold">
-                        {unackCritical}
-                      </span>
-                    )}
                   </button>
                 )
               })}
@@ -934,16 +819,12 @@ export default function AppShell() {
         <div className="backdrop-blur-xl bg-slate-900/90 border-t border-white/10 flex items-stretch h-16">
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id
-            const isDisabled = tab.id === "controls" && user?.role === "viewer"
             return (
               <button
                 key={tab.id}
-                disabled={isDisabled}
                 onClick={() => {
-                  if (!isDisabled) {
-                    setActiveTab(tab.id)
-                    setMobileSheetOpen(false)
-                  }
+                  setActiveTab(tab.id)
+                  setMobileSheetOpen(false)
                 }}
                 className={`
                   flex-1 h-full flex flex-col items-center justify-center gap-1 relative
@@ -952,7 +833,6 @@ export default function AppShell() {
                     ? "text-cyan-300 bg-cyan-500/10"
                     : "text-white/50 hover:text-white/80 hover:bg-white/5"
                   }
-                  ${isDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}
                 `}
               >
                 {isActive && (
@@ -962,11 +842,6 @@ export default function AppShell() {
                   {tab.iconTouch}
                 </div>
                 <span className="text-[10px] font-medium leading-none">{tab.label}</span>
-                {tab.id === "history" && unackCritical > 0 && (
-                  <span className="absolute top-2 right-[calc(50%-14px)] inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[9px] text-white font-bold">
-                    {unackCritical}
-                  </span>
-                )}
               </button>
             )
           })}
@@ -999,7 +874,7 @@ export default function AppShell() {
               </div>
               <div className="flex-1 overflow-y-auto scrollbar-thin p-3">
                 <ErrorBoundary>
-                  <MapControls config={layers} actions={layerActions} rainViewer={rainViewer} himawariAnimation={himawariAnimationData} himawariHook={himawari} />
+                  <MapControls config={layers} actions={layerActions} himawariAnimation={himawariAnimationData} himawariHook={himawari} />
                 </ErrorBoundary>
               </div>
             </GlassPanel>

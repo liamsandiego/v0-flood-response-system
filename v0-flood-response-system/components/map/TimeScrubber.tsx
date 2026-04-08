@@ -1,12 +1,10 @@
 "use client"
 
 // =============================================================================
-// RapidRelay – Time Scrubber
-// Slider with time display, past/forecast indicator, and time step buttons.
-// Used for both RainViewer and Himawari overlays.
+// RapidRelay – Time Scrubber (Compact)
+// Clean slider with time display and frame counter.
+// Step buttons moved to AnimationControls to avoid duplication.
 // =============================================================================
-
-import { ChevronLeft, ChevronRight } from "lucide-react"
 
 interface TimeScrubberProps {
   /** Current index in the frames array */
@@ -23,12 +21,11 @@ interface TimeScrubberProps {
   isForecast?: boolean
   /** Called when user moves the slider */
   onIndexChange: (index: number) => void
-  /** Jump backward by N frames */
-  onStepBack?: () => void
-  /** Jump forward by N frames */
-  onStepForward?: () => void
   /** Accent color class (e.g. "accent-cyan-400") */
   accentClass?: string
+  // Legacy props - kept for compatibility but no longer used
+  onStepBack?: () => void
+  onStepForward?: () => void
 }
 
 export function TimeScrubber({
@@ -39,23 +36,23 @@ export function TimeScrubber({
   relativeLabel,
   isForecast,
   onIndexChange,
-  onStepBack,
-  onStepForward,
   accentClass = "accent-cyan-400",
 }: TimeScrubberProps) {
   if (totalFrames === 0) return null
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       {/* Time display row */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-mono font-medium">{timeLabel}</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="text-sm font-mono font-semibold truncate">{timeLabel}</span>
           {relativeLabel && (
-            <span className="text-[10px] text-muted-foreground">({relativeLabel})</span>
+            <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+              ({relativeLabel})
+            </span>
           )}
         </div>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${
           isForecast
             ? "bg-amber-500/20 text-amber-400"
             : "bg-cyan-500/20 text-cyan-400"
@@ -64,18 +61,8 @@ export function TimeScrubber({
         </span>
       </div>
 
-      {/* Slider + step buttons */}
-      <div className="flex items-center gap-1.5">
-        {onStepBack && (
-          <button
-            onClick={onStepBack}
-            className="p-2.5 rounded hover:bg-muted transition-colors"
-            title="Step back"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-        )}
-
+      {/* Slider row */}
+      <div className="flex items-center gap-2">
         <div className="flex-1 relative">
           <input
             type="range"
@@ -83,29 +70,19 @@ export function TimeScrubber({
             max={totalFrames - 1}
             value={currentIndex}
             onChange={(e) => onIndexChange(Number(e.target.value))}
-            className={`w-full h-3 cursor-pointer ${accentClass}`}
-            style={{ touchAction: "none" }} // better mobile UX
+            className={`w-full h-2 cursor-pointer rounded-full ${accentClass}`}
+            style={{ touchAction: "none" }}
           />
           {/* Now marker on the slider track */}
           {nowIndex >= 0 && totalFrames > 1 && (
             <div
-              className="absolute top-0 w-0.5 h-3 bg-white/60 pointer-events-none"
+              className="absolute top-0 w-0.5 h-2 bg-white/60 pointer-events-none rounded"
               style={{ left: `${(nowIndex / (totalFrames - 1)) * 100}%` }}
             />
           )}
         </div>
 
-        {onStepForward && (
-          <button
-            onClick={onStepForward}
-            className="p-2.5 rounded hover:bg-muted transition-colors"
-            title="Step forward"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        )}
-
-        <span className="text-xs font-mono text-muted-foreground w-10 text-right shrink-0">
+        <span className="text-[11px] font-mono text-muted-foreground tabular-nums shrink-0">
           {currentIndex + 1}/{totalFrames}
         </span>
       </div>

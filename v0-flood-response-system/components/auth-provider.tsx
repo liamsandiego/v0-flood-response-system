@@ -14,7 +14,6 @@ function DynLoader({ label }: { label: string }) {
   )
 }
 
-// Lazy-load the login screen and app shell (both need browser APIs for globe)
 const LoginWithGlobe = dynamic(
   () => import("@/components/login-globe").catch((err) => {
     console.error("[dynamic] Failed to load login-globe:", err)
@@ -42,14 +41,13 @@ interface User {
 
 interface AuthContextType {
   user: User | null
-  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 async function fetchProfile(authUser: SupabaseUser): Promise<User> {
-  // Try to fetch from profiles table
   const { data } = await supabase
     .from("profiles")
     .select("username, full_name, role")
@@ -66,13 +64,13 @@ async function fetchProfile(authUser: SupabaseUser): Promise<User> {
     }
   }
 
-  // No profiles table or no row — use auth user data directly
+  // No profile row — fall back to email-derived info with viewer role
   const emailName = (authUser.email ?? "user").split("@")[0]
   return {
     id: authUser.id,
     email: authUser.email ?? "",
     username: emailName,
-    role: "admin" as UserRole,
+    role: "viewer" as UserRole,
     name: emailName,
   }
 }
@@ -82,13 +80,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // 1. Check existing session (with 5s timeout so we don't hang on "Initializing..." forever)
+    // Check existing session (5s timeout so we don't hang forever)
     const timeout = setTimeout(() => {
-      console.warn("[Auth] Supabase session check timed out after 5s — showing login")
+      console.warn("[Auth] Supabase session check timed out — showing login")
       setIsLoading(false)
     }, 5000)
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: { user: SupabaseUser } | null } }) => {
       clearTimeout(timeout)
       if (session?.user) {
         const profile = await fetchProfile(session.user)
@@ -101,9 +99,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false)
     })
 
-    // 2. Listen for auth state changes
+    // Listen for auth state changes — handles sign-in and sign-out automatically
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      async (event: string, session: { user: SupabaseUser } | null) => {
         if (event === "SIGNED_IN" && session?.user) {
           const profile = await fetchProfile(session.user)
           setUser(profile)
@@ -119,16 +117,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const login = useCallback(async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    const email = username.includes("@") ? username : `${username}@rapidrelay.local`
+  // Login requires a valid Supabase email + password — no bypass
+  const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) return { success: false, error: error.message }
     return { success: true }
   }, [])
 
+  // Logout: signOut triggers SIGNED_OUT → onAuthStateChange sets user to null
   const logout = useCallback(async () => {
     await supabase.auth.signOut()
-    setUser(null)
+  }, [])
+
+  const resetPassword = useCallback(async (email: string): Promise<{ success: boolean; error?: string }> => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email)
+    if (error) return { success: false, error: error.message }
+    return { success: true }
   }, [])
 
   if (isLoading) {
@@ -140,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   if (!user) {
-    return <LoginWithGlobe onLogin={login} />
+    return <LoginWithGlobe onLogin={login} onResetPassword={resetPassword} />
   }
 
   return (

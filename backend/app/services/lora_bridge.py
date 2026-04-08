@@ -27,9 +27,7 @@ HARD_MAX_MM = 10_000
 DELTA_FLAG_MM = 500
 
 SENSORS = {
-    "OBD-01": {"name": "Angat River North", "lat": 14.8369, "lon": 120.9592, "baseline_mm": 800},
-    "OBD-02": {"name": "San Pascual Canal",  "lat": 14.8285, "lon": 120.948,  "baseline_mm": 600},
-    "OBD-03": {"name": "Poblacion Bridge",   "lat": 14.8411, "lon": 120.9551, "baseline_mm": 700},
+    "OBD-01": {"name": "Obando Dike", "lat": 14.707225, "lon": 120.937613, "baseline_mm": 800},
 }
 
 

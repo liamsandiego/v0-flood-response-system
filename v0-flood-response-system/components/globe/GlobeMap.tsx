@@ -23,51 +23,11 @@ import { useFloodStore } from "@/stores/sensorStore";
 import type { SensorGeoJSON, AlertLevel } from "@/stores/sensorStore";
 import type { MapLayerConfig } from "@/lib/map-types";
 import type { HimawariFrame } from "@/hooks/use-himawari";
-import { getFloodExtent, fetchFloodExtent } from "@/lib/sentinel-mock-data";
+// @ts-ignore - mapbox-gl CSS types missing in declaration
 import "mapbox-gl/dist/mapbox-gl.css";
 
-// ---------------------------------------------------------------------------
-// Error boundary — catches WebGL crashes on tablets and shows retry fallback
-// ---------------------------------------------------------------------------
-interface MapErrorBoundaryState { hasError: boolean }
-
-export class MapErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  MapErrorBoundaryState
-> {
-  state: MapErrorBoundaryState = { hasError: false };
-
-  static getDerivedStateFromError(): MapErrorBoundaryState {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error: Error) {
-    console.error("[GlobeMap] Rendering crashed:", error);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="absolute inset-0 bg-slate-950 flex items-center justify-center">
-          <div className="text-center space-y-4 p-8">
-            <div className="text-4xl">&#x26A0;</div>
-            <h2 className="text-lg font-mono text-white/80">Map rendering failed</h2>
-            <p className="text-sm text-white/50 max-w-md font-mono">
-              Your device may not support 3D map rendering. Try reloading.
-            </p>
-            <button
-              onClick={() => this.setState({ hasError: false })}
-              className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-500 transition-colors"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
+// MapErrorBoundary lives in its own file — re-exported here for backwards compat
+export { MapErrorBoundary } from "@/components/globe/MapErrorBoundary";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -102,12 +62,7 @@ const MAP_STYLES: Record<string, { label: string; url: string }> = {
   outdoors: { label: "Terrain", url: "mapbox://styles/mapbox/outdoors-v12" },
 };
 
-// Zone color mapping for Sentinel-1 flood polygons
-const ZONE_COLORS: Record<string, string> = {
-  A: "#dc2626",
-  B: "#ea580c",
-  C: "#f59e0b",
-};
+
 
 // Enrich sensor data with alert level and color
 function enrichSensorData(data: SensorGeoJSON) {
@@ -135,21 +90,45 @@ function classifySensorAlert(waterLevel: number): AlertLevel {
   return "CLEAR";
 }
 
-// Sentinel color expression using "case" (handles null zone values)
-const SENTINEL_FILL_COLOR: unknown = [
-  "case",
-  ["==", ["get", "zone"], "A"], ZONE_COLORS.A,
-  ["==", ["get", "zone"], "B"], ZONE_COLORS.B,
-  ["==", ["get", "zone"], "C"], ZONE_COLORS.C,
-  "#3b82f6",
-];
-const SENTINEL_LINE_COLOR: unknown = [
-  "case",
-  ["==", ["get", "zone"], "A"], ZONE_COLORS.A,
-  ["==", ["get", "zone"], "B"], ZONE_COLORS.B,
-  ["==", ["get", "zone"], "C"], ZONE_COLORS.C,
-  "#60a5fa",
-];
+// Area of Interest GeoJSON — Polygon from aoi.geojson (first line)
+const aoiData = {
+  type: "FeatureCollection" as const,
+  features: [
+    {
+      type: "Feature" as const,
+      properties: { name: "Obando AOI" },
+      geometry: {
+        type: "Polygon" as const,
+        coordinates: [[
+          [120.92134967914029, 14.730750011539854],
+          [120.92998042205943, 14.734210915448301],
+          [120.93108208177563, 14.733573906020567],
+          [120.93095410769473, 14.73153602141528],
+          [120.93284451704676, 14.728644635229003],
+          [120.9329516832205, 14.72630760843795],
+          [120.93386690121156, 14.725395227809528],
+          [120.93638554551313, 14.720381719132348],
+          [120.93696533576468, 14.71883491086598],
+          [120.93947491052211, 14.715702484269713],
+          [120.94260839548315, 14.715109653613183],
+          [120.9451303418079, 14.712180950561574],
+          [120.94635091882884, 14.708715230652999],
+          [120.9474909951951, 14.708689266844601],
+          [120.94857421431334, 14.705067960551204],
+          [120.95080031482678, 14.702810904184474],
+          [120.95105810216842, 14.701528054692247],
+          [120.9520843472472, 14.700363712292244],
+          [120.95249023143475, 14.69874499431586],
+          [120.95552313998974, 14.697217572581394],
+          [120.95606431890644, 14.695059248193985],
+          [120.94885112053913, 14.693968951624981],
+          [120.94823333239401, 14.69490489972847],
+          [120.92134967914029, 14.730750011539854]
+        ]]
+      }
+    }
+  ]
+};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -162,10 +141,6 @@ interface GlobeMapProps {
   /** Which frame index is currently visible */
   himawariActiveIndex?: number;
   himawariMaxZoom?: number;
-  /** RainViewer tile URLs per frame — Zoom Earth pattern (all mounted, opacity toggle) */
-  rainViewerTileUrls?: string[];
-  /** Which RainViewer frame is currently visible */
-  rainViewerActiveIndex?: number;
   /** Touch device — disable terrain/globe for GPU performance */
   isTouch?: boolean;
 }
@@ -175,8 +150,6 @@ export default function GlobeMap({
   himawariFrames,
   himawariActiveIndex,
   himawariMaxZoom,
-  rainViewerTileUrls,
-  rainViewerActiveIndex,
   isTouch = false,
 }: GlobeMapProps) {
   const mapRef = useRef<MapRef>(null);
@@ -191,49 +164,10 @@ export default function GlobeMap({
 
   const mapStyle = layerConfig ? layerConfig.baseMap : mapStyleLocal;
 
-  const [showRainViewerLocal, setShowRainViewerLocal] = useState(false);
-  const [rainViewerOpacityLocal, setRainViewerOpacityLocal] = useState(0.6);
-
-  const showRainViewer = layerConfig ? layerConfig.rainViewer.enabled : showRainViewerLocal;
-  const rainViewerOpacity = layerConfig ? layerConfig.rainViewer.opacity : rainViewerOpacityLocal;
   const showHimawari = layerConfig?.himawari.enabled ?? false;
-  const showSentinel = layerConfig?.sentinel.enabled ?? false;
 
-  const markerData = enrichSensorData(sensorData);
-
-  // ── Sentinel-1 flood extent GeoJSON (backend → mock fallback) ──
-  const [sentinelGeoJSON, setSentinelGeoJSON] = useState<GeoJSON.FeatureCollection | null>(null);
-  useEffect(() => {
-    if (!layerConfig?.sentinel.enabled) {
-      setSentinelGeoJSON(null);
-      return;
-    }
-    const acqDate = layerConfig.sentinel.acquisitionDate;
-    let cancelled = false;
-
-    // Try backend first
-    fetchFloodExtent(acqDate)
-      .then((result) => {
-        if (cancelled) return;
-        if (result?.geojson) {
-          console.log("[Sentinel] Loaded from backend:", result.id, result.source, `flood_extent=${result.floodExtent}`);
-          setSentinelGeoJSON(result.geojson as GeoJSON.FeatureCollection);
-        } else {
-          // Fall back to mock
-          console.log("[Sentinel] Backend unavailable, using mock data");
-          const extent = getFloodExtent(acqDate);
-          setSentinelGeoJSON(extent?.geojson ?? null);
-        }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        console.log("[Sentinel] Backend error, using mock fallback");
-        const extent = getFloodExtent(acqDate);
-        setSentinelGeoJSON(extent?.geojson ?? null);
-      });
-
-    return () => { cancelled = true; };
-  }, [layerConfig?.sentinel.enabled, layerConfig?.sentinel.acquisitionDate]);
+  // Memoize sensor data enrichment to prevent re-creation on every render
+  const markerData = useMemo(() => enrichSensorData(sensorData), [sensorData]);
 
   // ── Setup terrain + fog helper ──
   const setupTerrainAndFog = useCallback((map: mapboxgl.Map) => {
@@ -339,7 +273,45 @@ export default function GlobeMap({
     canvas.addEventListener("webglcontextlost", handleContextLost);
     canvas.addEventListener("webglcontextrestored", handleContextRestored);
 
+    // ── Recenter on flood zone event listener ──
+    const handleFitBounds = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const { bounds } = customEvent.detail;
+      if (bounds) {
+        map.fitBounds(
+          [
+            [bounds.minLng, bounds.minLat],
+            [bounds.maxLng, bounds.maxLat],
+          ],
+          { padding: 50, duration: 1000 }
+        );
+      }
+    };
+    window.addEventListener("map:fitBounds", handleFitBounds);
+
+    // ── FlyTo event listener (for Recenter button) ──
+    const handleFlyTo = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const { lat, lng, zoom } = customEvent.detail;
+      if (lat != null && lng != null) {
+        map.flyTo({
+          center: [lng, lat],
+          zoom: zoom ?? 15,
+          duration: 1000,
+        });
+      }
+    };
+    window.addEventListener("map:flyTo", handleFlyTo);
+
     console.log("[GlobeMap] Map loaded, sensors:", sensorData.features.length, isEdge ? "(Edge mode)" : "");
+
+    // Cleanup event listener on unmount
+    return () => {
+      window.removeEventListener("map:fitBounds", handleFitBounds);
+      window.removeEventListener("map:flyTo", handleFlyTo);
+      canvas.removeEventListener("webglcontextlost", handleContextLost);
+      canvas.removeEventListener("webglcontextrestored", handleContextRestored);
+    };
   }, [setupTerrainAndFog, sensorData.features.length, isTouch, isEdge]);
 
   // Re-apply terrain + fog after style swap (Mapbox removes custom sources)
@@ -563,74 +535,24 @@ export default function GlobeMap({
           </Source>
         ))}
 
-        {/* ── RainViewer radar overlay (Zoom Earth pattern) ──
-             All frames permanently mounted (stable keys = no remount).
-             Use layout visibility to prevent tile fetching for non-active frames.
-             Only the active + 1 preload neighbor actually fetch tiles. */}
-        {styleReady && showRainViewer && rainViewerTileUrls?.map((url, i) => {
-          const active = rainViewerActiveIndex ?? 0;
-          const len = rainViewerTileUrls.length;
-          const nextIdx = (active + 1) % len;
-          // Active frame + next frame are "visible" (tiles fetched).
-          // All others are "none" (Mapbox skips tile loading entirely).
-          const shouldLoad = i === active || i === nextIdx;
-          return (
-            <Source
-              key={`rv-${i}`}
-              id={`rainviewer-${i}`}
-              type="raster"
-              tiles={[url]}
-              tileSize={256}
-              maxzoom={12}
-            >
-              <Layer
-                id={`rainviewer-layer-${i}`}
-                type="raster"
-                layout={{
-                  visibility: shouldLoad ? "visible" : "none",
-                }}
-                paint={{
-                  "raster-opacity": i === active ? rainViewerOpacity : 0,
-                  "raster-fade-duration": 0,
-                }}
-              />
-            </Source>
-          );
-        })}
-
-        {/* ── Sentinel-1 flood extent polygons ── */}
-        {styleReady && showSentinel && sentinelGeoJSON && (
-          <Source id="sentinel-flood" type="geojson" data={sentinelGeoJSON}>
+        {styleReady && layerConfig?.showFloodZones && (
+          <Source id="aoi" type="geojson" data={aoiData}>
             <Layer
-              id="sentinel-flood-fill"
+              id="aoi-fill"
               type="fill"
               paint={{
-                "fill-color": SENTINEL_FILL_COLOR as mapboxgl.Expression,
-                "fill-opacity": (layerConfig?.sentinel.opacity ?? 0.7) * 0.5,
+                "fill-color": "#eab308",
+                "fill-opacity": 0.08
               }}
             />
             <Layer
-              id="sentinel-flood-outline"
+              id="aoi-line"
               type="line"
               paint={{
-                "line-color": SENTINEL_LINE_COLOR as mapboxgl.Expression,
-                "line-width": 2,
-                "line-opacity": layerConfig?.sentinel.opacity ?? 0.7,
-              }}
-            />
-            <Layer
-              id="sentinel-flood-labels"
-              type="symbol"
-              layout={{
-                "text-field": ["get", "label"],
-                "text-size": 11,
-                "text-font": ["DIN Pro Medium", "Arial Unicode MS Regular"],
-                "text-allow-overlap": true,
-              }}
-              paint={{
-                "text-color": "#ffffff",
-                "text-halo-color": "rgba(0,0,0,0.8)",
-                "text-halo-width": 1.5,
+                "line-color": "#eab308",
+                "line-width": 2.5,
+                "line-opacity": 0.9,
+                "line-dasharray": [2, 2]
               }}
             />
           </Source>
@@ -661,7 +583,7 @@ export default function GlobeMap({
         )}
 
         {/* ── Sensor markers ── */}
-        {styleReady && markerData.features.length > 0 && (
+        {styleReady && markerData.features.length > 0 && layerConfig?.showSensorMarkers !== false && (
           <Source id="sensors" type="geojson" data={markerData}>
             <Layer
               id="sensor-glow"
@@ -753,32 +675,6 @@ export default function GlobeMap({
             </div>
           </div>
 
-          <div className="backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-lg p-2 space-y-1.5">
-            <span className="text-[9px] text-white/40 uppercase tracking-wider font-semibold block">Overlays</span>
-            <label className="flex items-center justify-between gap-2 cursor-pointer">
-              <span className="text-[10px] text-white/70">RainViewer Radar</span>
-              <input
-                type="checkbox"
-                checked={showRainViewerLocal}
-                onChange={(e) => setShowRainViewerLocal(e.target.checked)}
-                className="w-3.5 h-3.5 rounded accent-cyan-500"
-              />
-            </label>
-            {showRainViewerLocal && (
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-[9px] text-white/40">
-                  <span>Opacity</span>
-                  <span>{Math.round(rainViewerOpacityLocal * 100)}%</span>
-                </div>
-                <input
-                  type="range" min="0" max="1" step="0.1"
-                  value={rainViewerOpacityLocal}
-                  onChange={(e) => setRainViewerOpacityLocal(Number(e.target.value))}
-                  className="w-full h-1 accent-cyan-500"
-                />
-              </div>
-            )}
-          </div>
         </div>
       )}
     </>

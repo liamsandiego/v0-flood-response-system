@@ -1,0 +1,21 @@
+[Unit]
+Description=RapidRelay Next.js Dashboard
+After=rapidrelay-backend.service
+
+[Service]
+Type=simple
+User=rapidrelay
+Group=rapidrelay
+WorkingDirectory=/home/rapidrelay/RapidRelay/v0-flood-response-system
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=NODE_ENV=production
+EnvironmentFile=/home/rapidrelay/RapidRelay/.env
+ExecStart=/usr/bin/npm run dev
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rapidrelay-frontend
+
+[Install]
+WantedBy=multi-user.target

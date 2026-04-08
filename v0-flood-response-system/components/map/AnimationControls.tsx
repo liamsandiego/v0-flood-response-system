@@ -1,38 +1,28 @@
 "use client"
 
 // =============================================================================
-// RapidRelay – Animation Controls
-// Play/Pause, speed selection, step ±10min/±1hr, jump to latest.
+// RapidRelay – Animation Controls (Ultra-Compact)
+// Minimal footprint: play/pause + step + speed in tight layout.
 // =============================================================================
 
-import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight } from "lucide-react"
+import { Play, Pause, ChevronLeft, ChevronRight } from "lucide-react"
 
 interface AnimationControlsProps {
-  /** Whether animation is currently playing */
   playing: boolean
-  /** Current speed in ms per frame */
   speed: number
-  /** Toggle play/pause */
   onTogglePlay: () => void
-  /** Set animation speed */
   onSetSpeed: (ms: number) => void
-  /** Step to previous frame */
   onPrev: () => void
-  /** Step to next frame */
   onNext: () => void
-  /** Jump backward N frames (e.g. 6 = 1 hour if 10min intervals) */
   onJumpBack?: () => void
-  /** Jump forward N frames */
   onJumpForward?: () => void
-  /** Jump to latest/now frame */
   onJumpToLatest: () => void
-  /** Accent color for active state */
   accentBg?: string
   accentBorder?: string
 }
 
 const SPEED_OPTIONS = [
-  { label: "0.5×", ms: 1000 },
+  { label: "½×", ms: 1000 },
   { label: "1×", ms: 500 },
   { label: "2×", ms: 250 },
 ] as const
@@ -44,92 +34,65 @@ export function AnimationControls({
   onSetSpeed,
   onPrev,
   onNext,
-  onJumpBack,
-  onJumpForward,
   onJumpToLatest,
   accentBg = "bg-cyan-500",
-  accentBorder = "border-cyan-500",
 }: AnimationControlsProps) {
   return (
-    <div className="space-y-2">
-      {/* Main transport controls */}
-      <div className="flex items-center gap-1.5">
-        {onJumpBack && (
-          <button
-            onClick={onJumpBack}
-            className="flex items-center justify-center rounded border border-border px-2 py-2 min-h-[44px] min-w-[44px] hover:bg-muted transition-colors"
-            title="Jump back 1 hour"
-          >
-            <ChevronsLeft className="h-4 w-4" />
-          </button>
-        )}
+    <div className="flex items-center gap-1">
+      {/* Transport: < ▶ > */}
+      <button
+        onClick={onPrev}
+        className="flex items-center justify-center rounded border border-border h-7 w-7 hover:bg-muted transition-colors"
+        title="Previous"
+      >
+        <ChevronLeft className="h-3.5 w-3.5" />
+      </button>
 
-        <button
-          onClick={onPrev}
-          className="flex-1 flex items-center justify-center rounded border border-border px-2 py-2 min-h-[44px] hover:bg-muted transition-colors"
-          title="Previous frame (−10 min)"
-        >
-          <SkipBack className="h-4 w-4" />
-        </button>
+      <button
+        onClick={onTogglePlay}
+        className={`flex items-center justify-center rounded border h-7 w-8 transition-colors ${
+          playing ? `${accentBg} text-white border-transparent` : "border-border hover:bg-muted"
+        }`}
+        title={playing ? "Pause" : "Play"}
+      >
+        {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+      </button>
 
+      <button
+        onClick={onNext}
+        className="flex items-center justify-center rounded border border-border h-7 w-7 hover:bg-muted transition-colors"
+        title="Next"
+      >
+        <ChevronRight className="h-3.5 w-3.5" />
+      </button>
+
+      {/* Divider */}
+      <div className="w-px h-5 bg-border mx-0.5" />
+
+      {/* Speed: ½× 1× 2× */}
+      {SPEED_OPTIONS.map(({ label, ms }) => (
         <button
-          onClick={onTogglePlay}
-          className={`flex-1 flex items-center justify-center rounded border px-2 py-2 min-h-[44px] transition-colors ${
-            playing
-              ? `${accentBg} text-white ${accentBorder}`
-              : "border-border hover:bg-muted"
+          key={label}
+          onClick={() => onSetSpeed(ms)}
+          className={`text-[10px] font-medium rounded h-7 w-7 transition-colors ${
+            speed === ms ? `${accentBg} text-white` : "bg-muted/50 hover:bg-muted text-muted-foreground"
           }`}
-          title={playing ? "Pause" : "Play"}
         >
-          {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          {label}
         </button>
+      ))}
 
-        <button
-          onClick={onNext}
-          className="flex-1 flex items-center justify-center rounded border border-border px-2 py-2 min-h-[44px] hover:bg-muted transition-colors"
-          title="Next frame (+10 min)"
-        >
-          <SkipForward className="h-4 w-4" />
-        </button>
+      {/* Divider */}
+      <div className="w-px h-5 bg-border mx-0.5" />
 
-        {onJumpForward && (
-          <button
-            onClick={onJumpForward}
-            className="flex items-center justify-center rounded border border-border px-2 py-2 min-h-[44px] min-w-[44px] hover:bg-muted transition-colors"
-            title="Jump forward 1 hour"
-          >
-            <ChevronsRight className="h-4 w-4" />
-          </button>
-        )}
-
-        <button
-          onClick={onJumpToLatest}
-          className="text-xs rounded border border-border px-3 py-2 min-h-[44px] hover:bg-muted transition-colors font-medium"
-          title="Jump to latest"
-        >
-          Latest
-        </button>
-      </div>
-
-      {/* Speed selector */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground w-12 shrink-0">Speed</span>
-        <div className="flex gap-1.5 flex-1">
-          {SPEED_OPTIONS.map(({ label, ms }) => (
-            <button
-              key={label}
-              onClick={() => onSetSpeed(ms)}
-              className={`flex-1 text-xs rounded border px-2 py-1.5 min-h-[36px] transition-colors ${
-                speed === ms
-                  ? `${accentBg} text-white ${accentBorder}`
-                  : "border-border hover:bg-muted"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Latest */}
+      <button
+        onClick={onJumpToLatest}
+        className="text-[10px] font-medium rounded border border-border h-7 px-2 hover:bg-muted transition-colors"
+        title="Jump to latest"
+      >
+        Latest
+      </button>
     </div>
   )
 }

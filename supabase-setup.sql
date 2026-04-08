@@ -179,13 +179,15 @@ begin
   base_soil  := 40.0 + random() * 20.0;
   base_temp  := 28.0 + random() * 4.0 - 2.0;
 
+  -- No hardcoded demo sensors - sensor data comes from actual IoT devices via LoRa bridge
+  -- When you deploy physical sensors, add their IDs and coordinates in SENSOR_REGISTRY in constants.ts
+  -- For now, we'll use a single placeholder that won't generate data
   for node in
     select * from (
       values
-        ('OBD-01', 'Angat River North', 14.8369, 120.9592),
-        ('OBD-02', 'San Pascual Canal',  14.8285, 120.9480),
-        ('OBD-03', 'Poblacion Bridge',   14.8411, 120.9551)
+        ('PLACEHOLDER', 'No sensors configured', 0.0, 0.0)
     ) as t(id, name, lat, lon)
+    where false  -- Never execute - sensors must be added manually
   loop
     insert into public.sensor_readings (
       sensor_id, water_level, rainfall, humidity, soil_moisture,

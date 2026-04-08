@@ -6,15 +6,16 @@ import { Line, LineChart, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Refe
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { SENSOR_REGISTRY } from "@/lib/constants"
 import { convertValue, getDisplayUnit } from "@/lib/conversion"
+import { useFloodStore } from "@/stores/sensorStore"
 import type { SensorSnapshot, MeasurementUnit } from "@/lib/types"
 
 interface SensorGraphsProps {
   history: SensorSnapshot[]
-  unit: MeasurementUnit
 }
 
-export function SensorGraphs({ history, unit }: SensorGraphsProps) {
-  // Build chart data from real history (not mock)
+export function SensorGraphs({ history }: SensorGraphsProps) {
+  const unit = useFloodStore((s) => s.unit)
+  // Build chart data from real Supabase history (linked to sensor_readings)
   const waterLevelData = useMemo(() => {
     return history.map((snap) => ({
       time: snap.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -36,27 +37,6 @@ export function SensorGraphs({ history, unit }: SensorGraphsProps) {
     }))
   }, [history])
 
-  const rainfallData = useMemo(() => {
-    return history.map((snap) => ({
-      time: snap.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      value: snap.rainfall,
-    }))
-  }, [history])
-
-  const floodExtentData = useMemo(() => {
-    return history.map((snap) => ({
-      time: snap.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      value: snap.floodExtent,
-    }))
-  }, [history])
-
-  const riskData = useMemo(() => {
-    return history.map((snap) => ({
-      time: snap.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      value: snap.risk,
-    }))
-  }, [history])
-
   const waterMeta = SENSOR_REGISTRY.ultrasonic_water_level
   const soilMeta = SENSOR_REGISTRY.capacitive_soil_moisture
   const humidMeta = SENSOR_REGISTRY.humidity_dht22
@@ -69,9 +49,6 @@ export function SensorGraphs({ history, unit }: SensorGraphsProps) {
   const waterConfig = { value: { label: `Water Level (${waterUnit})`, color: "var(--chart-1)" } }
   const soilConfig = { value: { label: "Soil Moisture (%)", color: "var(--chart-2)" } }
   const humidConfig = { value: { label: "Humidity (%)", color: "var(--chart-3)" } }
-  const rainConfig = { value: { label: "Rainfall (mm)", color: "#3b82f6" } }
-  const floodConfig = { value: { label: "Flood Extent", color: "#8b5cf6" } }
-  const riskConfig = { value: { label: "Risk Factor", color: "#ef4444" } }
 
   if (history.length < 2) {
     return (
@@ -176,104 +153,6 @@ export function SensorGraphs({ history, unit }: SensorGraphsProps) {
                   dataKey="value"
                   stroke="var(--color-value)"
                   name="Humidity (%)"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: "var(--color-value)" }}
-                  activeDot={{ r: 5 }}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartContainer>
-        </CardContent>
-      </Card>
-
-      {/* Rainfall */}
-      <Card className="overflow-hidden">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base md:text-lg">Rainfall Trend</CardTitle>
-          <CardDescription className="text-xs md:text-sm">
-            Precipitation (mm)
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-2 md:p-6 pt-0">
-          <ChartContainer config={rainConfig} className="h-[180px] md:h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={rainfallData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10 }} width={35} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke="var(--color-value)"
-                  name="Rainfall (mm)"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: "var(--color-value)" }}
-                  activeDot={{ r: 5 }}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartContainer>
-        </CardContent>
-      </Card>
-
-      {/* Flood Extent */}
-      <Card className="overflow-hidden">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base md:text-lg">Flood Extent Trend</CardTitle>
-          <CardDescription className="text-xs md:text-sm">
-            Area Coverage
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-2 md:p-6 pt-0">
-          <ChartContainer config={floodConfig} className="h-[180px] md:h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={floodExtentData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10 }} width={35} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke="var(--color-value)"
-                  name="Flood Extent"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: "var(--color-value)" }}
-                  activeDot={{ r: 5 }}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartContainer>
-        </CardContent>
-      </Card>
-
-      {/* Risk */}
-      <Card className="overflow-hidden">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base md:text-lg">Risk Factor</CardTitle>
-          <CardDescription className="text-xs md:text-sm">
-            Calculated Risk (0-1)
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-2 md:p-6 pt-0">
-          <ChartContainer config={riskConfig} className="h-[180px] md:h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={riskData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10 }} domain={[0, 1]} width={35} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <ReferenceLine y={0.5} stroke="#f59e0b" strokeDasharray="6 3" label={{ value: "Med", fontSize: 9, position: "insideLeft" }} />
-                <ReferenceLine y={0.8} stroke="#ef4444" strokeDasharray="6 3" label={{ value: "High", fontSize: 9, position: "insideLeft" }} />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke="var(--color-value)"
-                  name="Risk"
                   strokeWidth={2}
                   dot={{ r: 3, fill: "var(--color-value)" }}
                   activeDot={{ r: 5 }}

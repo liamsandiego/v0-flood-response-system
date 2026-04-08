@@ -1,0 +1,22 @@
+[Unit]
+Description=RapidRelay FastAPI Backend
+After=network.target rapidrelay-chirpstack.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=rapidrelay
+Group=rapidrelay
+WorkingDirectory=/home/rapidrelay/RapidRelay/backend
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/home/rapidrelay/RapidRelay/.env
+ExecStart=/home/rapidrelay/RapidRelay/.venv/bin/python -m uvicorn app.main:app \
+          --host 0.0.0.0 --port 8001 --workers 1
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rapidrelay-backend
+
+[Install]
+WantedBy=multi-user.target

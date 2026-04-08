@@ -15,13 +15,13 @@ import type {
   MapLayerActions,
   BaseMapStyle,
   HimawariLayerState,
-  RainViewerLayerState,
-  SentinelLayerState,
   MapOverlays,
 } from "@/lib/map-types"
 import { defaultMapLayerConfig } from "@/lib/map-types"
 
 const STORAGE_KEY = "rapidrelay_map_layers"
+// Bump this when MapLayerConfig shape changes — clears stale localStorage automatically
+const SCHEMA_VERSION = "v3"
 
 /** Valid Mapbox base map keys */
 const VALID_BASE_MAPS: BaseMapStyle[] = ["dark", "satellite", "streets", "outdoors"]
@@ -29,22 +29,27 @@ const VALID_BASE_MAPS: BaseMapStyle[] = ["dark", "satellite", "streets", "outdoo
 function loadFromStorage(): MapLayerConfig | null {
   if (typeof window === "undefined") return null
   try {
+    // Check schema version — if missing or old, blow away stale data and start fresh
+    const savedVersion = localStorage.getItem(`${STORAGE_KEY}_version`)
+    if (savedVersion !== SCHEMA_VERSION) {
+      localStorage.removeItem(STORAGE_KEY)
+      localStorage.setItem(`${STORAGE_KEY}_version`, SCHEMA_VERSION)
+      return null
+    }
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<MapLayerConfig>
     const defaults = defaultMapLayerConfig()
-    // Validate baseMap — old Leaflet keys like "esri-satellite" are invalid
+    // Validate baseMap — old keys like "esri-satellite" are invalid
     const baseMap = VALID_BASE_MAPS.includes(parsed.baseMap as BaseMapStyle)
       ? (parsed.baseMap as BaseMapStyle)
       : defaults.baseMap
-    // Deep-merge with defaults so new fields (e.g. overlays) are always present
+    // Deep-merge with defaults so new fields are always present
     return {
       ...defaults,
       ...parsed,
       baseMap,
       himawari: { ...defaults.himawari, ...parsed.himawari },
-      rainViewer: { ...defaults.rainViewer, ...parsed.rainViewer },
-      sentinel: { ...defaults.sentinel, ...parsed.sentinel },
       overlays: { ...defaults.overlays, ...parsed.overlays },
     }
   } catch {
@@ -56,8 +61,9 @@ function saveToStorage(config: MapLayerConfig) {
   if (typeof window === "undefined") return
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
+    localStorage.setItem(`${STORAGE_KEY}_version`, SCHEMA_VERSION)
   } catch {
-    // storage full – silently ignore
+    // storage full — silently ignore
   }
 }
 
@@ -87,19 +93,7 @@ export function useMapLayers() {
     }))
   }, [])
 
-  const setRainViewer = useCallback((patch: Partial<RainViewerLayerState>) => {
-    setConfig((prev) => ({
-      ...prev,
-      rainViewer: { ...prev.rainViewer, ...patch },
-    }))
-  }, [])
 
-  const setSentinel = useCallback((patch: Partial<SentinelLayerState>) => {
-    setConfig((prev) => ({
-      ...prev,
-      sentinel: { ...prev.sentinel, ...patch },
-    }))
-  }, [])
 
   const toggleFloodZones = useCallback(() => {
     setConfig((prev) => ({ ...prev, showFloodZones: !prev.showFloodZones }))
@@ -119,8 +113,6 @@ export function useMapLayers() {
   const actions: MapLayerActions = {
     setBaseMap,
     setHimawari,
-    setRainViewer,
-    setSentinel,
     setOverlays,
     toggleFloodZones,
     toggleSensorMarkers,

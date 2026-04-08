@@ -71,34 +71,47 @@ async def _persist_prediction(prediction: dict):
 
 
 async def _sensor_loop():
-    """Background loop: tick the simulator, feed ML, broadcast to dashboards."""
+    """Background loop: fetch real sensor data from Supabase, feed ML, broadcast to dashboards."""
     logger.info("Sensor loop started (interval=%.1fs)", WS_BROADCAST_INTERVAL)
     tick_count = 0
 
     while True:
         try:
-            # 1. Generate sensor readings
-            readings = simulator.tick()
+            # 1. Fetch latest sensor readings from Supabase (last 5 readings = all nodes this tick)
+            sb = get_supabase()
+            if not sb:
+                logger.warning("Supabase not available, skipping tick")
+                await asyncio.sleep(WS_BROADCAST_INTERVAL)
+                continue
+
+            response = sb.table("sensor_readings") \
+                .select("*") \
+                .order("timestamp", desc=True) \
+                .limit(5) \
+                .execute()
+
+            readings = response.data if response.data else []
             tick_count += 1
+
+            if not readings:
+                logger.debug("No sensor readings available")
+                await asyncio.sleep(WS_BROADCAST_INTERVAL)
+                continue
 
             # 2. Feed readings to ML prediction service
             for r in readings:
-                prediction_service.ingest_reading(r)
-
-            # 2.5 Persist sensor readings to Supabase (fire-and-forget)
-            sb_rows = [{
-                "sensor_id": r["sensor_id"],
-                "water_level": r.get("water_level"),
-                "rainfall": r.get("rainfall"),
-                "humidity": r.get("humidity"),
-                "soil_moisture": r.get("soil_moisture"),
-                "temperature": r.get("temperature"),
-                "latitude": r["latitude"],
-                "longitude": r["longitude"],
-                "is_valid": r.get("is_valid", True),
-                "timestamp": r["timestamp"],
-            } for r in readings]
-            asyncio.create_task(_persist_readings(sb_rows))
+                prediction_service.ingest_reading({
+                    "sensor_id": r.get("sensor_id"),
+                    "water_level": r.get("water_level"),
+                    "rainfall": r.get("rainfall"),
+                    "humidity": r.get("humidity"),
+                    "soil_moisture": r.get("soil_moisture"),
+                    "temperature": r.get("temperature"),
+                    "latitude": r.get("latitude"),
+                    "longitude": r.get("longitude"),
+                    "is_valid": r.get("is_valid", True),
+                    "timestamp": r.get("timestamp"),
+                })
 
             # 3. Run prediction every 12 ticks (~60s at 5s interval)
             prediction = None
@@ -107,16 +120,30 @@ async def _sensor_loop():
                 if prediction:
                     asyncio.create_task(_persist_prediction(prediction))
 
-            # 4. Build GeoJSON for dashboard
+            # 4. Build GeoJSON for dashboard from real sensor data
             features = []
             for r in readings:
                 features.append({
                     "type": "Feature",
                     "geometry": {
                         "type": "Point",
-                        "coordinates": [r["longitude"], r["latitude"]],
+                        "coordinates": [r.get("longitude", 120.937), r.get("latitude", 14.707)],
                     },
-                    "properties": r,
+                    "properties": {
+                        "sensor_id": r.get("sensor_id"),
+                        "name": r.get("sensor_id"),
+                        "type": "multi",
+                        "water_level": r.get("water_level"),
+                        "rainfall": r.get("rainfall"),
+                        "humidity": r.get("humidity"),
+                        "soil_moisture": r.get("soil_moisture"),
+                        "temperature": r.get("temperature"),
+                        "is_valid": r.get("is_valid"),
+                        "timestamp": r.get("timestamp"),
+                        "latitude": r.get("latitude"),
+                        "longitude": r.get("longitude"),
+                        "flood_mode": False,
+                    },
                 })
 
             payload = {

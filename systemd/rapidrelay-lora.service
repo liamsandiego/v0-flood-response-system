@@ -1,0 +1,21 @@
+[Unit]
+Description=RapidRelay LoRa Bridge (MQTT/Serial → SQLite)
+After=network.target rapidrelay-backend.service
+Requires=rapidrelay-backend.service
+
+[Service]
+Type=simple
+User=rapidrelay
+Group=dialout
+WorkingDirectory=/home/rapidrelay/RapidRelay
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/home/rapidrelay/RapidRelay/.env
+ExecStart=/home/rapidrelay/RapidRelay/.venv/bin/python lora_bridge.py --mode mqtt
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rapidrelay-lora
+
+[Install]
+WantedBy=multi-user.target

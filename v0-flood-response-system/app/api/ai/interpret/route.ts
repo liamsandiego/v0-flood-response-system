@@ -14,7 +14,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
-const GROQ_MODEL = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
+const GROQ_MODEL = process.env.GROQ_MODEL || "mixtral-8x7b-32768";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -102,7 +102,7 @@ export async function GET() {
       const { data: preds } = await supabase
         .from("flood_predictions")
         .select("*")
-        .order("predicted_at", { ascending: false })
+        .order("timestamp", { ascending: false })
         .limit(1);
 
       if (preds && preds.length > 0) {
@@ -127,7 +127,10 @@ ${JSON.stringify(sensorSummary, null, 2)}
 
 Provide your flood risk interpretation and recommended actions.`;
 
-    // Call Groq API
+    // Call Groq API with timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
     const response = await fetch(GROQ_API_URL, {
       method: "POST",
       headers: {
@@ -143,7 +146,10 @@ Provide your flood risk interpretation and recommended actions.`;
         temperature: 0.3,
         max_completion_tokens: 1024,
       }),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
 
     if (!response.ok) {
       const errText = await response.text();
@@ -161,8 +167,11 @@ Provide your flood risk interpretation and recommended actions.`;
       error: false,
     });
   } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : "Unknown error";
+    const isTimeout = errorMsg.includes("abort") || errorMsg.includes("timeout");
+
     return NextResponse.json({
-      interpretation: `AI interpretation failed: ${e instanceof Error ? e.message : "Unknown error"}`,
+      interpretation: `AI interpretation failed: ${isTimeout ? "Groq API timeout (10s)" : errorMsg}`,
       model: GROQ_MODEL,
       timestamp: new Date().toISOString(),
       error: true,

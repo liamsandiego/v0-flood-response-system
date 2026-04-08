@@ -9,6 +9,8 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Prevent Next.js from bundling native modules — they load from node_modules at runtime
+  serverExternalPackages: ["better-sqlite3"],
   async headers() {
     return [
       {

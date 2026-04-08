@@ -66,9 +66,7 @@ DELTA_FLAG_MM = 500      # >0.5m in 5min → flag
 
 # Sensor registry (Obando deployment) — sensor_id must match TTGO/ChirpStack device EUI mapping
 SENSORS = {
-    "OBD-01": {"name": "Angat River North", "lat": 14.8369, "lon": 120.9592, "baseline_mm": 800},
-    "OBD-02": {"name": "San Pascual Canal",  "lat": 14.8285, "lon": 120.9480, "baseline_mm": 600},
-    "OBD-03": {"name": "Poblacion Bridge",   "lat": 14.8411, "lon": 120.9551, "baseline_mm": 700},
+    "OBD-01": {"name": "Obando Dike", "lat": 14.707225, "lon": 120.937613, "baseline_mm": 800},
 }
 
 logging.basicConfig(

@@ -81,6 +81,9 @@ interface FloodStore {
   tick: number;
   clientCount: number;
 
+  // UI Preferences
+  unit: "metric" | "imperial";
+
   // Actions
   updateSensors: (data: SensorGeoJSON) => void;
   updatePrediction: (pred: Prediction) => void;
@@ -89,6 +92,7 @@ interface FloodStore {
   dismissAlert: () => void;
   triggerCriticalMode: (message: string) => void;
   resetCriticalMode: () => void;
+  setUnit: (unit: "metric" | "imperial") => void;
 }
 
 const MAX_HISTORY = 120; // 10 minutes at 5s intervals
@@ -106,6 +110,7 @@ export const useFloodStore = create<FloodStore>((set, get) => ({
   lastUpdate: null,
   tick: 0,
   clientCount: 0,
+  unit: "metric",
 
   // Actions
   updateSensors: (data) => {
@@ -165,4 +170,19 @@ export const useFloodStore = create<FloodStore>((set, get) => ({
 
   resetCriticalMode: () =>
     set({ criticalMode: false, alertLevel: "CLEAR", alertMessage: null }),
+
+  setUnit: (unit) => {
+    set({ unit });
+    if (typeof window !== "undefined") {
+      localStorage.setItem("rapidrelay_unit", unit);
+    }
+  },
 }));
+
+// Hydrate unit preference from localStorage on first load
+if (typeof window !== "undefined") {
+  const saved = localStorage.getItem("rapidrelay_unit");
+  if (saved === "metric" || saved === "imperial") {
+    useFloodStore.setState({ unit: saved });
+  }
+}

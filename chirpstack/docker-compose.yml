@@ -1,0 +1,102 @@
+version: "3.9"
+
+# RapidRelay — ChirpStack LoRaWAN Network Server
+# Raspberry Pi 5 / Ubuntu deployment
+#
+# Services:
+#   postgres     — ChirpStack application database
+#   redis        — ChirpStack state / session store
+#   mosquitto    — MQTT broker (lora_bridge.py subscribes here)
+#   chirpstack   — LoRaWAN Network Server + Application Server (port 8080)
+#   gateway-bridge — Receives UDP packets from TTGO T-Beam (port 1700)
+#
+# Quick start:
+#   docker compose up -d
+#   docker compose logs -f chirpstack
+#
+# Admin dashboard: http://localhost:8080
+#   Default login: admin / admin  (change immediately)
+#
+# TTGO T-Beam setup:
+#   WiFi provision → set "Server Address" to RPi IP, port 1700
+#   Or flash with packet_forwarder firmware pointing to this Pi
+
+services:
+
+  postgres:
+    image: postgres:14-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     chirpstack
+      POSTGRES_PASSWORD: chirpstack
+      POSTGRES_DB:       chirpstack
+    volumes:
+      - chirpstack_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chirpstack"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - chirpstack_redis_data:/data
+    command: redis-server --appendonly yes
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"  # WebSocket MQTT (optional, for browser tools)
+    volumes:
+      - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "health/check", "-m", "ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gateway-bridge:
+    image: chirpstack/chirpstack-gateway-bridge:latest
+    restart: unless-stopped
+    ports:
+      - "1700:1700/udp"    # Semtech UDP from TTGO T-Beam / RAK gateway
+    volumes:
+      - ./config/chirpstack-gateway-bridge.toml:/etc/chirpstack-gateway-bridge/chirpstack-gateway-bridge.toml:ro
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - INTEGRATION__MQTT__EVENT_TOPIC_TEMPLATE=us915_0/gateway/{{ .GatewayID }}/event/{{ .EventType }}
+      - INTEGRATION__MQTT__COMMAND_TOPIC_TEMPLATE=us915_0/gateway/{{ .GatewayID }}/command/#
+      - INTEGRATION__MQTT__SERVER=tcp://mosquitto:1883
+
+  chirpstack:
+    image: chirpstack/chirpstack:4
+    restart: unless-stopped
+    command: -c /etc/chirpstack
+    ports:
+      - "8080:8080"    # Web UI + gRPC API
+    volumes:
+      - ./config:/etc/chirpstack:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      mosquitto:
+        condition: service_healthy
+      gateway-bridge:
+        condition: service_started
+    environment:
+      - POSTGRESQL__DSN=postgres://chirpstack:chirpstack@postgres/chirpstack?sslmode=disable
+      - REDIS__SERVERS=redis:6379
+      - NETWORK__NET_ID=000000
+      - NETWORK__ENABLED_REGIONS=us915_0  # US915 band (Ra-08h + TTGO T-Beam compatibility)
+
+volumes:
+  chirpstack_pg_data:
+  chirpstack_redis_data:
