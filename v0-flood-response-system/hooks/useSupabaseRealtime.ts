@@ -43,6 +43,9 @@ export function useSupabaseRealtime() {
           const row = payload.new as Record<string, unknown>;
 
           // Build a GeoJSON feature from the environmental data
+          // Note: Schema uses "Final Distance", "Soil Moisture", separate Date/Time
+          const date = row.Date ? new Date(`${row.Date}T${row.Time || '00:00:00'}Z`).toISOString() : new Date().toISOString();
+
           const feature = {
             type: "Feature" as const,
             geometry: {
@@ -50,18 +53,18 @@ export function useSupabaseRealtime() {
               coordinates: [OBANDO_LNG, OBANDO_LAT] as [number, number],
             },
             properties: {
-              sensor_id: "obando-main",
+              sensor_id: (row.Device as string) || "obando-main",
               name: "Obando Environmental Sensor",
               type: "multi",
               latitude: OBANDO_LAT,
               longitude: OBANDO_LNG,
-              water_level: (row.distance_m as number) ?? null,
+              water_level: (row["Final Distance"] as number) ?? null,
               rainfall: null,
-              humidity: (row.humidity as number) ?? null,
-              temperature: (row.temperature as number) ?? null,
-              soil_moisture: (row.soil as number) ?? null,
+              humidity: (row.Humidity as number) ?? null,
+              temperature: (row.Temperature as number) ?? null,
+              soil_moisture: (row["Soil Moisture"] as number) ?? null,
               is_valid: true,
-              timestamp: row.timestamp as string,
+              timestamp: date,
               flood_mode: false,
             },
           };
