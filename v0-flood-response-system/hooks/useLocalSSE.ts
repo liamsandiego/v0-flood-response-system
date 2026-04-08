@@ -173,6 +173,13 @@ export function useLocalSSE(): LocalSSEStatus {
   }
 
   useEffect(() => {
+    // Skip SSE on Vercel/serverless - Supabase Realtime handles live data there
+    // SSE is only for local deployments with SQLite
+    if (typeof window !== "undefined" && window.location.hostname.includes("vercel.app")) {
+      console.log("[LocalSSE] Skipping on Vercel - using Supabase Realtime instead");
+      return;
+    }
+    
     connectSSE();
     return () => {
       esRef.current?.close();

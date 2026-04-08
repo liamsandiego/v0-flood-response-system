@@ -7,26 +7,16 @@ echo Staging all changes...
 git add -A
 echo.
 echo Committing changes...
-git commit -m "fix: Simplify Supabase client and add debug endpoint
+git commit -m "fix: Skip SSE on Vercel to prevent status override
 
-- Reverted supabase.ts to simple direct createClient (removed Proxy that broke auth)
-- Added debug info to /api/sync-status endpoint to diagnose deployment issues
-- After deploy, visit your-domain.vercel.app/api/sync-status to see env var status
-
-Test the deployment:
-1. Push these changes
-2. Visit https://YOUR_APP.vercel.app/api/sync-status
-3. Check if supabaseTest.connected is true
-4. If false, the debug info will show which env vars are missing
+- useLocalSSE now skips SSE connection on Vercel deployments
+- This prevents the DISCONNECTED status override when SSE fails
+- Supabase Realtime properly shows LIVE status on Vercel now
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 echo.
 echo Pushing to remote...
 git push
 echo.
-echo ========================================
-echo IMPORTANT: After Vercel deploys, visit:
-echo https://YOUR_APP.vercel.app/api/sync-status
-echo to check if Supabase is connecting properly
-echo ========================================
+echo Done! The DISCONNECTED badge should now show LIVE after deploy.
 pause
