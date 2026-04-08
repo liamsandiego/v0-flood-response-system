@@ -17,6 +17,19 @@ import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/
 const OBANDO_LAT = 14.7094;
 const OBANDO_LNG = 120.9358;
 
+// Raw row from Supabase (actual column names with spaces/quotes)
+interface SupabaseRawReading {
+  id: number;
+  "Soil Moisture": number;
+  "Temperature": number;
+  "Humidity": number;
+  "Pressure": number;
+  "Final Distance": number | null;
+  "Date": string | null;
+  "Time": string | null;
+  "Device": string | null;
+}
+
 /**
  * Subscribes to Supabase Realtime for live environmental data updates.
  */
@@ -40,7 +53,15 @@ export function useSupabaseRealtime() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "obando_environmental_data" },
         (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
-          const row = payload.new as Record<string, unknown>;
+          const row = payload.new as SupabaseRawReading;
+
+          // Combine Date and Time into a timestamp
+          let timestamp = new Date().toISOString();
+          if (row["Date"] && row["Time"]) {
+            timestamp = `${row["Date"]}T${row["Time"]}`;
+          } else if (row["Date"]) {
+            timestamp = `${row["Date"]}T00:00:00`;
+          }
 
           // Build a GeoJSON feature from the environmental data
           const feature = {
@@ -55,13 +76,13 @@ export function useSupabaseRealtime() {
               type: "multi",
               latitude: OBANDO_LAT,
               longitude: OBANDO_LNG,
-              water_level: (row.distance_m as number) ?? null,
+              water_level: row["Final Distance"] ?? null,
               rainfall: null,
-              humidity: (row.humidity as number) ?? null,
-              temperature: (row.temperature as number) ?? null,
-              soil_moisture: (row.soil as number) ?? null,
+              humidity: row["Humidity"] ?? null,
+              temperature: row["Temperature"] ?? null,
+              soil_moisture: row["Soil Moisture"] ?? null,
               is_valid: true,
-              timestamp: row.timestamp as string,
+              timestamp: timestamp,
               flood_mode: false,
             },
           };

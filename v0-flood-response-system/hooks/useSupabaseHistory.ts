@@ -13,7 +13,21 @@ import { supabase } from "@/lib/supabase";
 import { useFloodStore } from "@/stores/sensorStore";
 import type { SensorSnapshot, SensorReading } from "@/lib/types";
 
-interface SupabaseReading {
+// Raw row from Supabase (actual column names with spaces/quotes)
+interface SupabaseRawReading {
+  id: number;
+  "Soil Moisture": number;
+  "Temperature": number;
+  "Humidity": number;
+  "Pressure": number;
+  "Final Distance": number | null;
+  "Date": string | null;
+  "Time": string | null;
+  "Device": string | null;
+}
+
+// Normalized reading for internal use
+interface NormalizedReading {
   id: number;
   timestamp: string;
   soil: number;
@@ -23,14 +37,33 @@ interface SupabaseReading {
   distance_m: number | null;
 }
 
+// Convert raw Supabase row to normalized reading
+function normalizeReading(raw: SupabaseRawReading): NormalizedReading {
+  let timestamp = new Date().toISOString();
+  if (raw["Date"] && raw["Time"]) {
+    timestamp = `${raw["Date"]}T${raw["Time"]}`;
+  } else if (raw["Date"]) {
+    timestamp = `${raw["Date"]}T00:00:00`;
+  }
+
+  return {
+    id: raw.id,
+    timestamp,
+    soil: raw["Soil Moisture"],
+    temperature: raw["Temperature"],
+    humidity: raw["Humidity"],
+    pressure: raw["Pressure"],
+    distance_m: raw["Final Distance"],
+  };
+}
+
 /**
- * Convert a batch of Supabase obando_environmental_data rows
- * into a SensorSnapshot for the History tab.
+ * Convert a batch of normalized readings into a SensorSnapshot for the History tab.
  */
-function rowsToSnapshot(rows: SupabaseReading[]): SensorSnapshot | null {
+function rowsToSnapshot(rows: NormalizedReading[]): SensorSnapshot | null {
   if (rows.length === 0) return null;
 
-  // Average across all readings in this tick (usually just 1 for this table)
+  // Average across all readings in this tick
   let waterLevel = 0;
   let soilMoisture = 0;
   let humidity = 0;
@@ -91,25 +124,33 @@ export function useSupabaseHistory(
       }, 5000);
 
       try {
-        // Fetch from obando_environmental_data (the actual table with data)
+        // Fetch using actual Supabase column names (with spaces/quotes)
         const { data, error } = await supabase
           .from("obando_environmental_data")
-          .select("id, timestamp, soil, temperature, humidity, pressure, distance_m")
-          .order("timestamp", { ascending: false })
+          .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
+          .order("id", { ascending: false })
           .limit(500);
 
         clearTimeout(timeout);
 
-        if (error || !data || data.length === 0) {
+        if (error) {
+          console.error("[History] Supabase error:", error);
+          return;
+        }
+
+        if (!data || data.length === 0) {
           console.log("[History] No Supabase data available, starting fresh");
           return;
         }
 
         console.log(`[History] Loaded ${data.length} readings from obando_environmental_data`);
 
+        // Normalize all raw records
+        const normalized = (data as SupabaseRawReading[]).map(normalizeReading);
+
         // Group by timestamp (rounded to 1 minute buckets)
-        const groups = new Map<string, SupabaseReading[]>();
-        for (const row of data as SupabaseReading[]) {
+        const groups = new Map<string, NormalizedReading[]>();
+        for (const row of normalized) {
           const ts = new Date(row.timestamp);
           const bucket = new Date(Math.round(ts.getTime() / 60000) * 60000).toISOString();
           const existing = groups.get(bucket) || [];
@@ -132,7 +173,7 @@ export function useSupabaseHistory(
 
         // Also hydrate the Zustand store with the latest reading
         // so sensor cards show data immediately (using a mock sensor location for Obando)
-        const latest = data[0] as SupabaseReading;
+        const latest = normalized[0];
         if (latest) {
           const OBANDO_LAT = 14.7094;
           const OBANDO_LNG = 120.9358;

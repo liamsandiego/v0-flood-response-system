@@ -9,7 +9,20 @@ import {
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
-// Matches public.obando_environmental_data schema
+// Raw row from Supabase (actual column names with spaces/quotes)
+interface SupabaseRawRecord {
+  id: number
+  "Soil Moisture": number
+  "Temperature": number
+  "Humidity": number
+  "Pressure": number
+  "Final Distance": number | null
+  "Date": string | null
+  "Time": string | null
+  "Device": string | null
+}
+
+// Normalized record for internal use
 interface EnvironmentalRecord {
   id: number
   timestamp: string
@@ -18,6 +31,27 @@ interface EnvironmentalRecord {
   humidity: number
   pressure: number
   distance_m: number | null
+}
+
+// Convert raw Supabase row to normalized record
+function normalizeRecord(raw: SupabaseRawRecord): EnvironmentalRecord {
+  // Combine Date and Time into a timestamp
+  let timestamp = new Date().toISOString()
+  if (raw["Date"] && raw["Time"]) {
+    timestamp = `${raw["Date"]}T${raw["Time"]}`
+  } else if (raw["Date"]) {
+    timestamp = `${raw["Date"]}T00:00:00`
+  }
+
+  return {
+    id: raw.id,
+    timestamp,
+    soil: raw["Soil Moisture"],
+    temperature: raw["Temperature"],
+    humidity: raw["Humidity"],
+    pressure: raw["Pressure"],
+    distance_m: raw["Final Distance"],
+  }
 }
 
 const PAGE_SIZE = 25
@@ -59,19 +93,23 @@ export function DataTab() {
 
     const fetchData = async () => {
       try {
+        // Query using actual Supabase column names (with spaces/quotes)
         const { data, error } = await supabase
           .from("obando_environmental_data")
-          .select("id, timestamp, soil, temperature, humidity, pressure, distance_m")
-          .order("timestamp", { ascending: false })
+          .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
+          .order("id", { ascending: false })
           .limit(1000)
 
         if (error) {
           console.error("[DataTab] Failed to fetch sensor data:", error)
         } else if (data && data.length > 0) {
-          cachedRecords = data as EnvironmentalRecord[]
+          // Normalize the raw records to our internal format
+          cachedRecords = (data as SupabaseRawRecord[]).map(normalizeRecord)
           dataLoaded = true
           setRecords(cachedRecords)
           console.log(`[DataTab] Loaded ${data.length} records from obando_environmental_data`)
+        } else {
+          console.log("[DataTab] No data found in obando_environmental_data")
         }
       } catch (err) {
         console.error("[DataTab] Error fetching data:", err)
@@ -89,8 +127,9 @@ export function DataTab() {
         .on(
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "obando_environmental_data" },
-          (payload: { new: EnvironmentalRecord }) => {
-            cachedRecords = [payload.new, ...cachedRecords].slice(0, 1000)
+          (payload: { new: SupabaseRawRecord }) => {
+            const normalized = normalizeRecord(payload.new)
+            cachedRecords = [normalized, ...cachedRecords].slice(0, 1000)
             setRecords(cachedRecords)
           }
         )

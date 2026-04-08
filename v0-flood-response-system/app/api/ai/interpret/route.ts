@@ -14,7 +14,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
-const GROQ_MODEL = process.env.GROQ_MODEL || "meta-llama/llama-3.3-70b-versatile";
+// Use stable production model - llama-3.3-70b-versatile is production-ready
+// Fallback chain: env var → llama-3.3 → llama-3.1 (smaller but very fast)
+const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -63,33 +65,41 @@ export async function GET() {
     if (SUPABASE_URL && SUPABASE_ANON_KEY) {
       const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-      // Get last batch of sensor readings (5 nodes)
-      const { data: readings } = await supabase
-        .from("sensor_readings")
-        .select("*")
-        .order("timestamp", { ascending: false })
+      // Get last batch of environmental readings from obando_environmental_data
+      // Note: Column names have spaces and need quotes
+      const { data: readings, error } = await supabase
+        .from("obando_environmental_data")
+        .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
+        .order("id", { ascending: false })
         .limit(5);
 
+      if (error) {
+        console.error("[AI Interpret] Supabase error:", error);
+      }
+
       if (readings && readings.length > 0) {
-        sensorSummary = readings.map((r) => ({
-          sensor_id: r.sensor_id,
-          water_level_m: r.water_level,
-          rainfall_mm_h: r.rainfall,
-          humidity_pct: r.humidity,
-          soil_moisture_pct: r.soil_moisture,
-          temperature_c: r.temperature,
-          is_valid: r.is_valid,
+        sensorSummary = readings.map((r: Record<string, unknown>) => ({
+          sensor_id: r["Device"] ?? "obando-main",
+          water_level_m: r["Final Distance"],
+          rainfall_mm_h: null,
+          humidity_pct: r["Humidity"],
+          soil_moisture_pct: r["Soil Moisture"],
+          temperature_c: r["Temperature"],
+          pressure_hpa: r["Pressure"],
+          date: r["Date"],
+          time: r["Time"],
+          is_valid: true,
         }));
 
         // Compute simple risk from latest readings
-        const avgWater = readings.reduce((s: number, r: any) => s + (r.water_level ?? 0), 0) / readings.length;
-        const avgRain = readings.reduce((s: number, r: any) => s + (r.rainfall ?? 0), 0) / readings.length;
-        const avgHumid = readings.reduce((s: number, r: any) => s + (r.humidity ?? 50), 0) / readings.length;
+        const avgWater = readings.reduce((s: number, r: Record<string, unknown>) => s + ((r["Final Distance"] as number) ?? 0), 0) / readings.length;
+        const avgHumid = readings.reduce((s: number, r: Record<string, unknown>) => s + ((r["Humidity"] as number) ?? 50), 0) / readings.length;
+        const avgSoil = readings.reduce((s: number, r: Record<string, unknown>) => s + ((r["Soil Moisture"] as number) ?? 50), 0) / readings.length;
 
         const waterScore = Math.min(Math.max(avgWater / 3.0, 0), 1);
-        const rainScore = Math.min(Math.max(avgRain / 50.0, 0), 1);
         const humScore = Math.min(Math.max(avgHumid / 100.0, 0), 1);
-        const risk = 0.4 * rainScore + 0.3 * humScore + 0.3 * waterScore;
+        const soilScore = Math.min(Math.max(avgSoil / 100.0, 0), 1);
+        const risk = 0.4 * waterScore + 0.3 * humScore + 0.3 * soilScore;
 
         prediction = {
           flood_probability: Math.round(risk * 10000) / 10000,

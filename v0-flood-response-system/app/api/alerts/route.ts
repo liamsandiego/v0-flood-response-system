@@ -3,14 +3,31 @@
  *
  * GET  /api/alerts         → recent alerts from readings_local (requires_human=1 or alert_level != NORMAL)
  * POST /api/alerts/ack     → acknowledge a reading (set requires_human=0)
+ * 
+ * NOTE: This route uses SQLite and only works in LOCAL_MODE (self-hosted).
+ * On Vercel/serverless, returns empty alerts (use Supabase for cloud alerts).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
 
 export const runtime = "nodejs";
 
+// Check if we're in a serverless environment (Vercel)
+function isServerless(): boolean {
+  return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
 export async function GET(request: NextRequest) {
+  // On serverless, return empty alerts (frontend uses Supabase directly)
+  if (isServerless()) {
+    return NextResponse.json({
+      alerts: [],
+      count: 0,
+      message: "Local alerts not available on Vercel. Use Supabase alert tables.",
+    });
+  }
+
   try {
+    const { getDb } = await import("@/lib/db");
     const db = getDb();
     const url = new URL(request.url);
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50"), 500);
@@ -47,7 +64,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("[/api/alerts] GET error:", error);
     return NextResponse.json(
-      { error: "Failed to fetch alerts", detail: String(error) },
+      { error: "Failed to fetch alerts", detail: String(error), alerts: [], count: 0 },
       { status: 500 }
     );
   }
@@ -55,7 +72,16 @@ export async function GET(request: NextRequest) {
 
 // Acknowledge a reading (clear requires_human flag)
 export async function PATCH(request: NextRequest) {
+  // On serverless, acknowledgment not supported
+  if (isServerless()) {
+    return NextResponse.json({
+      error: "Local alert acknowledgment not available on Vercel",
+      message: "Use Supabase to manage alerts in cloud deployments",
+    }, { status: 501 });
+  }
+
   try {
+    const { getDb } = await import("@/lib/db");
     const db = getDb();
     const { id } = await request.json();
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

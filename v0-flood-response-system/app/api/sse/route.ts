@@ -4,19 +4,49 @@
  * Streams the latest SQLite reading every 5 seconds to all connected clients.
  * Compatible with EventSource browser API.
  *
+ * NOTE: This route requires SQLite and only works in LOCAL_MODE (self-hosted).
+ * On Vercel/serverless deployments, this will return an error response.
+ *
  * Event format:
  *   data: {"type":"sensor_update","reading":{...},"count":N}\n\n
  */
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs"; // required for better-sqlite3
 
 const POLL_INTERVAL_MS = 5000;
 
+// Check if we're in a serverless environment (Vercel)
+function isServerless(): boolean {
+  return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
 export async function GET() {
-  const db = getDb();
+  // On serverless platforms, SQLite isn't available - return graceful error
+  if (isServerless()) {
+    return NextResponse.json(
+      {
+        error: "SSE not available",
+        message: "Server-Sent Events require LOCAL_MODE with SQLite. Use Supabase Realtime for cloud deployments.",
+        hint: "This is expected behavior on Vercel. The frontend should use Supabase Realtime instead.",
+      },
+      { status: 501 }
+    );
+  }
+
+  // Dynamic import to avoid bundling issues on Vercel
+  let db: ReturnType<typeof import("@/lib/db").getDb>;
+  try {
+    const { getDb } = await import("@/lib/db");
+    db = getDb();
+  } catch (err) {
+    console.error("[SSE] Failed to load SQLite:", err);
+    return NextResponse.json(
+      { error: "SQLite unavailable", message: String(err) },
+      { status: 500 }
+    );
+  }
 
   const stream = new ReadableStream({
     start(controller) {
