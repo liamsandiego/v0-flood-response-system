@@ -16,6 +16,23 @@ function isServerless(): boolean {
   return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 }
 
+// Local reading type definition (matches db.ts)
+interface LocalReading {
+  id: number;
+  sensor_id: string;
+  raw_mm: number | null;
+  validated_m: number | null;
+  uncertainty: number | null;
+  alert_level: string;
+  requires_human: number;
+  explanation: string | null;
+  constraint_pass: number;
+  constraint_note: string | null;
+  synced: number;
+  cloud_id: string | null;
+  created_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // GET — fetch recent readings
 // ---------------------------------------------------------------------------
@@ -31,43 +48,27 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { getDb, type LocalReading } = await import("@/lib/db") as typeof import("@/lib/db");
+    const { getDb } = await import("@/lib/db");
     const db = getDb();
     const url = new URL(request.url);
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "100"), 1000);
     const sensor = url.searchParams.get("sensor");
 
-    type LocalReadingType = typeof LocalReading extends never ? {
-      id: number;
-      sensor_id: string;
-      raw_mm: number | null;
-      validated_m: number | null;
-      uncertainty: number | null;
-      alert_level: string;
-      requires_human: number;
-      explanation: string | null;
-      constraint_pass: number;
-      constraint_note: string | null;
-      synced: number;
-      cloud_id: string | null;
-      created_at: string;
-    } : LocalReading;
-
-    let rows: LocalReadingType[];
+    let rows: LocalReading[];
     if (sensor) {
       rows = db
         .prepare(
           `SELECT * FROM readings_local WHERE sensor_id = ?
            ORDER BY created_at DESC LIMIT ?`
         )
-        .all(sensor, limit) as LocalReadingType[];
+        .all(sensor, limit) as LocalReading[];
     } else {
       rows = db
         .prepare(
           `SELECT * FROM readings_local
            ORDER BY created_at DESC LIMIT ?`
         )
-        .all(limit) as LocalReadingType[];
+        .all(limit) as LocalReading[];
     }
 
     // Parse explanation JSON field
