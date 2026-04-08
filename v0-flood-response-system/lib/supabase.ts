@@ -25,17 +25,30 @@ function getEnvVars() {
 
 // Build a minimal no-op stub when credentials are missing (so the app doesn't crash on import)
 function createNoOpClient() {
+  // Auth stub that returns empty/error responses
+  const authStub = {
+    getSession: () => Promise.resolve({ data: { session: null }, error: new Error("Supabase not configured") }),
+    signInWithPassword: () => Promise.resolve({ data: { user: null, session: null }, error: new Error("Supabase not configured - check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY") }),
+    signOut: () => Promise.resolve({ error: null }),
+    resetPasswordForEmail: () => Promise.resolve({ error: new Error("Supabase not configured") }),
+    onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+  };
+
   const noOpClient: Record<string, unknown> = new Proxy(
     {},
     {
       get(_target, prop) {
+        if (prop === "auth") return authStub;
         if (prop === "subscribe") return () => ({ unsubscribe: () => {} });
         if (prop === "unsubscribe") return () => {};
         if (prop === "channel") return () => noOpClient;
         if (prop === "on") return () => noOpClient;
         if (prop === "removeChannel") return () => {};
         if (prop === "from") return () => ({
-          select: () => ({ order: () => ({ limit: () => Promise.resolve({ data: [], error: new Error("No Supabase client - check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY") }) }) }),
+          select: () => ({ 
+            eq: () => ({ single: () => Promise.resolve({ data: null, error: new Error("No Supabase client") }) }),
+            order: () => ({ limit: () => Promise.resolve({ data: [], error: new Error("No Supabase client") }) }) 
+          }),
         });
         return () => noOpClient;
       },
