@@ -32,6 +32,18 @@ class SensorSnapshot(BaseModel):
     water_level: SensorReading
     soil_moisture: SensorReading
     humidity: SensorReading
+    temperature: SensorReading = Field(default_factory=lambda: SensorReading(
+        sensor_id="temperature_bme680",
+        value=0.0,
+        effective_value=0.0,
+        status="normal"
+    ))
+    pressure: SensorReading = Field(default_factory=lambda: SensorReading(
+        sensor_id="pressure_bme680",
+        value=0.0,
+        effective_value=0.0,
+        status="normal"
+    ))
     rainfall: float = 0.0
     flood_extent: float = 0.0
     wetness_trend: int = 0

@@ -57,6 +57,9 @@ function normalizeReading(raw: SupabaseRawReading): NormalizedReading {
   };
 }
 
+// Water level calculation constant
+const DIKE_HEIGHT_M = 4.038; // 13'3" = 4.038 meters
+
 /**
  * Convert a batch of normalized readings into a SensorSnapshot for the History tab.
  */
@@ -67,12 +70,21 @@ function rowsToSnapshot(rows: NormalizedReading[]): SensorSnapshot | null {
   let waterLevel = 0;
   let soilMoisture = 0;
   let humidity = 0;
+  let temperature = 0;
+  let pressure = 0;
   let count = 0;
 
   for (const r of rows) {
-    waterLevel += r.distance_m ?? 0;
+    // Calculate water level: water_level = dike_height - distance_to_water
+    const calcWaterLevel = (r.distance_m != null && r.distance_m >= 0)
+      ? Math.max(0, DIKE_HEIGHT_M - r.distance_m)
+      : 0;
+
+    waterLevel += calcWaterLevel;
     soilMoisture += r.soil ?? 0;
     humidity += r.humidity ?? 0;
+    temperature += r.temperature ?? 0;
+    pressure += r.pressure ?? 0;
     count++;
   }
 
@@ -80,9 +92,11 @@ function rowsToSnapshot(rows: NormalizedReading[]): SensorSnapshot | null {
   waterLevel /= count;
   soilMoisture /= count;
   humidity /= count;
+  temperature /= count;
+  pressure /= count;
 
   const ts = new Date(rows[0].timestamp);
-  const risk = Math.min(1, (waterLevel / 2.0) * 0.5 + (soilMoisture / 100) * 0.3 + (humidity / 100) * 0.2);
+  const risk = Math.min(1, (waterLevel / 3.0) * 0.3 + (soilMoisture / 100) * 0.2 + (humidity / 100) * 0.2);
 
   const mkReading = (val: number, warnThresh: number, critThresh: number): SensorReading => ({
     value: val,
@@ -94,11 +108,13 @@ function rowsToSnapshot(rows: NormalizedReading[]): SensorSnapshot | null {
 
   return {
     timestamp: ts,
-    waterLevel: mkReading(waterLevel, 1.0, 1.8),
-    soilMoisture: mkReading(soilMoisture, 70, 90),
-    humidity: mkReading(humidity, 85, 95),
+    waterLevel: mkReading(waterLevel, 1.5, 2.5),
+    soilMoisture: mkReading(soilMoisture, 60, 80),
+    humidity: mkReading(humidity, 75, 90),
+    temperature: mkReading(temperature, 35, 40), // °C thresholds
+    pressure: mkReading(pressure, 950, 900), // hPa thresholds (lower is worse)
     rainfall: 0,
-    floodExtent: Math.min(1, waterLevel / 2.5),
+    floodExtent: Math.min(1, waterLevel / 3.0),
     wetnessTrend: 0,
     risk,
     overallStatus: risk > 0.7 ? "critical" : risk > 0.4 ? "warning" : "normal",
@@ -171,41 +187,8 @@ export function useSupabaseHistory(
           console.log(`[History] Hydrated ${snapshots.length} snapshots from Supabase`);
         }
 
-        // Also hydrate the Zustand store with the latest reading
-        // so sensor cards show data immediately (using a mock sensor location for Obando)
-        const latest = normalized[0];
-        if (latest) {
-          const OBANDO_LAT = 14.7094;
-          const OBANDO_LNG = 120.9358;
-          
-          const feature = {
-            type: "Feature" as const,
-            geometry: {
-              type: "Point" as const,
-              coordinates: [OBANDO_LNG, OBANDO_LAT] as [number, number],
-            },
-            properties: {
-              sensor_id: "obando-main",
-              name: "Obando Environmental Sensor",
-              type: "multi",
-              latitude: OBANDO_LAT,
-              longitude: OBANDO_LNG,
-              water_level: latest.distance_m,
-              rainfall: null,
-              humidity: latest.humidity,
-              temperature: latest.temperature,
-              soil_moisture: latest.soil,
-              is_valid: true,
-              timestamp: latest.timestamp,
-              flood_mode: false,
-            },
-          };
-
-          useFloodStore.getState().updateSensors({
-            type: "FeatureCollection",
-            features: [feature],
-          });
-        }
+        // History is used for trends only.
+        // Live status cards must come from realtime stream, not historical seed data.
       } catch (err) {
         clearTimeout(timeout);
         console.warn("[History] Failed to fetch from Supabase:", err);

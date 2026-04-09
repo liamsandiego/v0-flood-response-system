@@ -6,6 +6,8 @@ import { Droplets, AlertCircle, Eye, EyeOff } from "lucide-react"
 import { DEPLOYMENT } from "@/lib/constants"
 import GlobeMap from "@/components/globe/GlobeMap"
 
+const LOGIN_TIMEOUT_MS = 15_000
+
 interface LoginGlobeProps {
   onLogin: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
   onResetPassword?: (email: string) => Promise<{ success: boolean; error?: string }>
@@ -26,11 +28,22 @@ export default function LoginWithGlobe({ onLogin, onResetPassword }: LoginGlobeP
     setError("")
     setSuccessMsg("")
     setLoading(true)
-    const result = await onLogin(username, password)
-    if (!result.success) {
-      setError(result.error || "Invalid username or password")
+    try {
+      const result = await Promise.race([
+        onLogin(username.trim(), password),
+        new Promise<{ success: boolean; error?: string }>((resolve) => {
+          setTimeout(() => resolve({ success: false, error: "Login timed out. Please try again." }), LOGIN_TIMEOUT_MS)
+        }),
+      ])
+
+      if (!result.success) {
+        setError(result.error || "Invalid username or password")
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed. Please try again.")
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const handleResetPassword = async (e: React.FormEvent) => {
@@ -39,13 +52,24 @@ export default function LoginWithGlobe({ onLogin, onResetPassword }: LoginGlobeP
     setError("")
     setSuccessMsg("")
     setLoading(true)
-    const result = await onResetPassword(email)
-    if (!result.success) {
-      setError(result.error || "Failed to send reset email")
-    } else {
-      setSuccessMsg("Check your email for the reset link")
+    try {
+      const result = await Promise.race([
+        onResetPassword(email.trim()),
+        new Promise<{ success: boolean; error?: string }>((resolve) => {
+          setTimeout(() => resolve({ success: false, error: "Reset request timed out. Please try again." }), LOGIN_TIMEOUT_MS)
+        }),
+      ])
+
+      if (!result.success) {
+        setError(result.error || "Failed to send reset email")
+      } else {
+        setSuccessMsg("Check your email for the reset link")
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send reset email")
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (

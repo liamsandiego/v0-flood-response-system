@@ -22,6 +22,8 @@ THRESHOLDS = {
     "water_level": {"warning": 1.5, "critical": 2.5},
     "soil_moisture": {"warning": 60, "critical": 80},
     "humidity": {"warning": 75, "critical": 90},
+    "temperature": {"warning": 35, "critical": 40},
+    "pressure": {"warning": 950, "critical": 900},
     "rainfall": {"warning": 7.5, "critical": 30},
 }
 
@@ -83,24 +85,20 @@ async def get_latest_sensor_reading(sensor_id: str) -> Optional[dict]:
 
 
 async def get_latest_snapshot() -> Optional[SensorSnapshot]:
-    """Fetch the latest sensor snapshot aggregated from all nodes.
+    """Fetch the latest sensor snapshot from sensor_readings table.
 
-    Queries real data from obando_environmental_data table.
-    Calculates water_level from Final Distance: water_level = dike_height - Final Distance
-    Syncs calculated water_level to Supabase sensor_readings table.
-
-    Note: Column names have spaces and capitalization:
-      "Final Distance", "Soil Moisture", "Temperature", "Pressure", "Humidity"
+    Queries the most recent reading which has all fields: water_level, rainfall,
+    humidity, soil_moisture, temperature, pressure.
     """
     sb = get_supabase()
     if not sb:
         return None
 
     try:
-        # Fetch latest reading from obando_environmental_data (most recent by id)
-        response = sb.table("obando_environmental_data") \
+        # Fetch latest reading from sensor_readings (most recent timestamp)
+        response = sb.table("sensor_readings") \
             .select("*") \
-            .order("id", desc=True) \
+            .order("timestamp", desc=True) \
             .limit(1) \
             .execute()
 
@@ -108,49 +106,15 @@ async def get_latest_snapshot() -> Optional[SensorSnapshot]:
             return None
 
         reading = response.data[0]
+        ts = datetime.fromisoformat(reading.get("timestamp")) if reading.get("timestamp") else datetime.now(timezone.utc)
 
-        # Build timestamp from Date and Time columns
-        ts = datetime.now(timezone.utc)
-        date_str = reading.get("Date")
-        time_str = reading.get("Time")
-        if date_str and time_str:
-            try:
-                ts = datetime.fromisoformat(f"{date_str}T{time_str}").replace(tzinfo=timezone.utc)
-            except Exception:
-                pass
-
-        # Calculate water level from Final Distance (ultrasonic sensor)
-        # water_level = dike_height - distance_to_water
-        final_distance = reading.get("Final Distance")
-        if final_distance is not None and final_distance >= 0:
-            water_level = max(0, DIKE_HEIGHT_M - final_distance)
-        else:
-            water_level = 0.0
-
-        # Get other measurements (with proper column names)
-        soil_moisture = reading.get("Soil Moisture") or 0.0
-        humidity = reading.get("Humidity") or 0.0
-        temperature = reading.get("Temperature") or 0.0
-        pressure = reading.get("Pressure") or 0.0
-        rainfall = 0.0  # Not in obando_environmental_data, use 0
-
-        # Sync to sensor_readings table (persist calculated water_level)
-        try:
-            sb.table("sensor_readings").insert({
-                "sensor_id": "node-obando-gateway",
-                "water_level": water_level,
-                "rainfall": rainfall,
-                "humidity": humidity,
-                "soil_moisture": soil_moisture,
-                "temperature": temperature,
-                "pressure": pressure,
-                "latitude": 14.707225,  # PAGASA Obando Station
-                "longitude": 120.937613,
-                "is_valid": True,
-                "timestamp": ts.isoformat(),
-            }).execute()
-        except Exception as e:
-            print(f"[SensorService] Warning: Could not sync to sensor_readings: {e}")
+        # Get all measurements from sensor_readings
+        water_level = reading.get("water_level") or 0.0
+        soil_moisture = reading.get("soil_moisture") or 0.0
+        humidity = reading.get("humidity") or 0.0
+        temperature = reading.get("temperature") or 0.0
+        pressure = reading.get("pressure") or 0.0
+        rainfall = reading.get("rainfall") or 0.0
 
         # Compute risk score
         water_score = min(water_level / 3.0, 1.0)
@@ -182,15 +146,17 @@ async def get_latest_snapshot() -> Optional[SensorSnapshot]:
             water_level=mk_reading(water_level, "water_level"),
             soil_moisture=mk_reading(soil_moisture, "soil_moisture"),
             humidity=mk_reading(humidity, "humidity"),
+            temperature=mk_reading(temperature, "temperature"),
+            pressure=mk_reading(pressure, "pressure"),
             rainfall=rainfall,
-            flood_extent=0.0,  # Deprecated — use Sentinel-1 EO
-            wetness_trend=0,   # Deprecated — use EO trends
+            flood_extent=0.0,
+            wetness_trend=0,
             risk=risk,
             overall_status=overall,
             timestamp=ts,
         )
     except Exception as e:
-        print(f"[SensorService] Error fetching snapshot: {e}")
+        print(f"[SensorService] Error fetching snapshot from sensor_readings: {e}")
         return None
 
 

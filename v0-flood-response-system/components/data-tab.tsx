@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect, useRef } from "react"
+import { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -31,6 +31,14 @@ interface EnvironmentalRecord {
   humidity: number
   pressure: number
   distance_m: number | null
+  water_level_m: number | null
+}
+
+const DIKE_HEIGHT_M = 4.038
+
+function calculateWaterLevel(distanceM: number | null): number | null {
+  if (distanceM == null || distanceM < 0) return null
+  return Math.max(0, DIKE_HEIGHT_M - distanceM)
 }
 
 // Convert raw Supabase row to normalized record
@@ -51,18 +59,65 @@ function normalizeRecord(raw: SupabaseRawRecord): EnvironmentalRecord {
     humidity: raw["Humidity"],
     pressure: raw["Pressure"],
     distance_m: raw["Final Distance"],
+    water_level_m: calculateWaterLevel(raw["Final Distance"]),
   }
 }
 
 const PAGE_SIZE = 25
+const REFRESH_INTERVAL_MS = 20_000
+const FETCH_TIMEOUT_MS = 12_000
+const INITIAL_FETCH_LIMIT = 300
+const POLL_FETCH_LIMIT = 120
+const MAX_RECORDS = 1000
+const DATA_CACHE_KEY = "rapidrelay:data-tab-cache:v1"
+const DATA_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
-// Module-level cache to persist data across tab switches
-let cachedRecords: EnvironmentalRecord[] = []
-let dataLoaded = false
+interface DataCachePayload {
+  updatedAt: number
+  records: EnvironmentalRecord[]
+}
+
+function readDataCache(): EnvironmentalRecord[] {
+  if (typeof window === "undefined") return []
+  try {
+    const raw = window.localStorage.getItem(DATA_CACHE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as DataCachePayload
+    if (!parsed?.updatedAt || !Array.isArray(parsed.records)) return []
+    if (Date.now() - parsed.updatedAt > DATA_CACHE_MAX_AGE_MS) return []
+    return parsed.records
+  } catch {
+    return []
+  }
+}
+
+function writeDataCache(records: EnvironmentalRecord[]) {
+  if (typeof window === "undefined") return
+  try {
+    const payload: DataCachePayload = {
+      updatedAt: Date.now(),
+      records,
+    }
+    window.localStorage.setItem(DATA_CACHE_KEY, JSON.stringify(payload))
+  } catch {
+    // Ignore quota/storage failures; live data still works.
+  }
+}
+
+function sortByNewest(records: EnvironmentalRecord[]) {
+  return [...records].sort((a, b) => b.id - a.id)
+}
+
+function mergeRecords(prev: EnvironmentalRecord[], incoming: EnvironmentalRecord[]) {
+  const map = new Map<number, EnvironmentalRecord>()
+  for (const r of prev) map.set(r.id, r)
+  for (const r of incoming) map.set(r.id, r)
+  return sortByNewest(Array.from(map.values())).slice(0, MAX_RECORDS)
+}
 
 // Derive status from distance (water level) thresholds
 function deriveStatus(r: EnvironmentalRecord): "normal" | "warning" | "critical" {
-  const waterLevel = r.distance_m ?? 0
+  const waterLevel = r.water_level_m ?? 0
   if (waterLevel >= 2.5) return "critical"
   if (waterLevel >= 1.5) return "warning"
   return "normal"
@@ -78,47 +133,90 @@ export function DataTab() {
   const [filter, setFilter] = useState("")
   const [statusFilter, setStatusFilter] = useState<"all" | "normal" | "warning" | "critical">("all")
   const [page, setPage] = useState(1)
-  const [records, setRecords] = useState<EnvironmentalRecord[]>(cachedRecords)
-  const [loading, setLoading] = useState(!dataLoaded)
+  const [records, setRecords] = useState<EnvironmentalRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const fetchingRef = useRef(false)
+  const hasHydratedCacheRef = useRef(false)
+  const latestIdRef = useRef<number | null>(null)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
-  useEffect(() => {
-    // Skip if already fetching or data already loaded
-    if (fetchingRef.current || dataLoaded) {
-      setLoading(false)
-      return
-    }
+  const fetchData = useCallback(async (initial = false) => {
+    if (fetchingRef.current) return
     fetchingRef.current = true
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
-    const fetchData = async () => {
-      try {
-        // Query using actual Supabase column names (with spaces/quotes)
-        const { data, error } = await supabase
-          .from("obando_environmental_data")
-          .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
-          .order("id", { ascending: false })
-          .limit(1000)
+    if (initial && records.length === 0) {
+      setLoading(true)
+    } else {
+      setRefreshing(true)
+    }
 
-        if (error) {
-          console.error("[DataTab] Failed to fetch sensor data:", error)
-        } else if (data && data.length > 0) {
-          // Normalize the raw records to our internal format
-          cachedRecords = (data as SupabaseRawRecord[]).map(normalizeRecord)
-          dataLoaded = true
-          setRecords(cachedRecords)
-          console.log(`[DataTab] Loaded ${data.length} records from obando_environmental_data`)
-        } else {
-          console.log("[DataTab] No data found in obando_environmental_data")
-        }
-      } catch (err) {
-        console.error("[DataTab] Error fetching data:", err)
-      } finally {
+    try {
+      let query = supabase
+        .from("obando_environmental_data")
+        .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
+        .abortSignal(controller.signal)
+        .order("id", { ascending: false })
+
+      if (!initial && latestIdRef.current != null) {
+        query = query.gt("id", latestIdRef.current).limit(POLL_FETCH_LIMIT)
+      } else {
+        query = query.limit(INITIAL_FETCH_LIMIT)
+      }
+
+      const { data, error } = await query
+
+      if (error) {
+        console.error("[DataTab] Failed to fetch sensor data:", error)
+        setFetchError(error.message ?? "Failed to fetch data")
+      } else if (data) {
+        const normalized = (data as SupabaseRawRecord[]).map(normalizeRecord)
+        setRecords((prev) => {
+          const next = initial || latestIdRef.current == null ? sortByNewest(normalized) : mergeRecords(prev, normalized)
+          latestIdRef.current = next.length > 0 ? next[0].id : latestIdRef.current
+          return next
+        })
+        setFetchError(null)
+      }
+    } catch (err) {
+      console.error("[DataTab] Error fetching data:", err)
+      const isAbortError = err instanceof Error && err.name === "AbortError"
+      setFetchError(isAbortError ? "Request timed out. Retrying..." : "Network error while fetching data")
+    } finally {
+      clearTimeout(timeoutId)
+      setLoading(false)
+      setRefreshing(false)
+      fetchingRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hasHydratedCacheRef.current) {
+      const cachedRecords = readDataCache()
+      if (cachedRecords.length > 0) {
+        const cached = sortByNewest(cachedRecords).slice(0, MAX_RECORDS)
+        setRecords(cached)
+        latestIdRef.current = cached[0]?.id ?? null
         setLoading(false)
-        fetchingRef.current = false
+      }
+      hasHydratedCacheRef.current = true
+      fetchData(cachedRecords.length === 0)
+    }
+
+    // Polling fallback if realtime misses events/disconnects.
+    const interval = setInterval(fetchData, REFRESH_INTERVAL_MS)
+
+    // Refresh immediately when user returns to the tab/window.
+    const onFocus = () => {
+      if (document.visibilityState === "visible") {
+        fetchData()
       }
     }
-    fetchData()
+    window.addEventListener("focus", onFocus)
+    document.addEventListener("visibilitychange", onFocus)
 
     // Realtime: new rows pushed live (only subscribe once)
     if (!channelRef.current) {
@@ -126,20 +224,45 @@ export function DataTab() {
         .channel("environmental-data-realtime")
         .on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table: "obando_environmental_data" },
-          (payload: { new: SupabaseRawRecord }) => {
-            const normalized = normalizeRecord(payload.new)
-            cachedRecords = [normalized, ...cachedRecords].slice(0, 1000)
-            setRecords(cachedRecords)
+          { event: "*", schema: "public", table: "obando_environmental_data" },
+          (payload: any) => {
+            const eventType = payload?.eventType as string | undefined
+            if (eventType === "DELETE") {
+              const deletedId = Number(payload?.old?.id)
+              setRecords((prev) => prev.filter((r) => r.id !== deletedId))
+              return
+            }
+
+            const normalized = normalizeRecord(payload.new as SupabaseRawRecord)
+            setRecords((prev) => mergeRecords(prev, [normalized]))
           }
         )
-        .subscribe()
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            fetchData()
+          }
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            fetchData()
+          }
+        })
     }
 
     return () => {
-      // Don't unsubscribe on unmount - keep connection alive
+      clearInterval(interval)
+      window.removeEventListener("focus", onFocus)
+      document.removeEventListener("visibilitychange", onFocus)
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current)
+        channelRef.current = null
+      }
     }
-  }, [])
+  }, [fetchData])
+
+  useEffect(() => {
+    if (!hasHydratedCacheRef.current) return
+    latestIdRef.current = records[0]?.id ?? latestIdRef.current
+    writeDataCache(records.slice(0, MAX_RECORDS))
+  }, [records])
 
   useEffect(() => { setPage(1) }, [filter, statusFilter])
 
@@ -150,8 +273,8 @@ export function DataTab() {
       if (!filter) return true
       const text = filter.toLowerCase()
       const ts = new Date(r.timestamp).toLocaleString().toLowerCase()
-      const dist = (r.distance_m ?? 0).toFixed(2)
-      return ts.includes(text) || status.includes(text) || dist.includes(text)
+      const water = (r.water_level_m ?? 0).toFixed(2)
+      return ts.includes(text) || status.includes(text) || water.includes(text)
     })
   }, [records, filter, statusFilter])
 
@@ -168,7 +291,7 @@ export function DataTab() {
       return [
         new Date(r.timestamp).toISOString(),
         status.toUpperCase(),
-        (r.distance_m ?? "").toString(),
+        (r.water_level_m ?? "").toString(),
         r.soil.toString(),
         r.humidity.toString(),
         r.temperature.toString(),
@@ -197,7 +320,8 @@ export function DataTab() {
               Environmental Data
             </CardTitle>
             <CardDescription className="mt-1">
-              {loading ? "Loading..." : `${filtered.length} record${filtered.length !== 1 ? "s" : ""}`} • Synced from Supabase
+              {loading ? "Loading..." : `${filtered.length} record${filtered.length !== 1 ? "s" : ""}`}
+              {refreshing ? " • Refreshing..." : " • Synced from Supabase"}
             </CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={exportCSV} disabled={filtered.length === 0}>
@@ -241,10 +365,16 @@ export function DataTab() {
         </div>
 
         {/* Table */}
-        {loading ? (
+        {loading && records.length === 0 ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <div className="h-5 w-5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin mr-3" />
             <span className="text-sm">Loading data from Supabase...</span>
+          </div>
+        ) : fetchError && records.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <FileSpreadsheet className="h-10 w-10 mb-3 opacity-40" />
+            <p className="text-sm font-medium">Unable to load records right now</p>
+            <p className="text-xs mt-1">{fetchError}</p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
@@ -275,7 +405,7 @@ export function DataTab() {
                         {new Date(r.timestamp).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                       </td>
                       <td className="px-3 py-2">{getStatusBadge(status)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{r.distance_m != null ? r.distance_m.toFixed(2) : "—"}</td>
+                      <td className="px-3 py-2 text-right font-mono">{r.water_level_m != null ? r.water_level_m.toFixed(2) : "—"}</td>
                       <td className="px-3 py-2 text-right font-mono">{r.soil.toFixed(0)}</td>
                       <td className="px-3 py-2 text-right font-mono">{r.humidity.toFixed(0)}</td>
                       <td className="px-3 py-2 text-right font-mono">{r.temperature.toFixed(1)}</td>

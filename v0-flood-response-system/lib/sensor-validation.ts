@@ -31,6 +31,16 @@ const sensorStates: Record<SensorId, SensorState> = {
     consecutiveFailures: 0,
     lastValidTimestamp: null,
   },
+  temperature_bme680: {
+    lastValidValue: SENSOR_REGISTRY.temperature_bme680.fallbackValue,
+    consecutiveFailures: 0,
+    lastValidTimestamp: null,
+  },
+  pressure_bme680: {
+    lastValidValue: SENSOR_REGISTRY.pressure_bme680.fallbackValue,
+    consecutiveFailures: 0,
+    lastValidTimestamp: null,
+  },
   rain_gauge: {
     lastValidValue: SENSOR_REGISTRY.rain_gauge.fallbackValue,
     consecutiveFailures: 0,
@@ -158,6 +168,8 @@ export function deriveOverallStatus(snapshot: SensorSnapshot): AlertLevel {
     snapshot.soilMoisture.status,
     snapshot.waterLevel.status,
     snapshot.humidity.status,
+    snapshot.temperature.status,
+    snapshot.pressure.status,
   ]
   if (levels.includes("critical")) return "critical"
   if (levels.includes("warning")) return "warning"

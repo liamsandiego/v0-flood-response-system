@@ -21,6 +21,8 @@ export type SensorId =
   | "capacitive_soil_moisture"
   | "ultrasonic_water_level"
   | "humidity_dht22"
+  | "temperature_bme680"
+  | "pressure_bme680"
   | "rain_gauge"
   | "risk_engine"
   | "flood_mapper"
@@ -66,6 +68,8 @@ export interface SensorSnapshot {
   soilMoisture: SensorReading
   waterLevel: SensorReading
   humidity: SensorReading
+  temperature: SensorReading
+  pressure: SensorReading
   // New metrics from Excel data
   rainfall: number
   floodExtent: number

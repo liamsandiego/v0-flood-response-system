@@ -22,6 +22,26 @@ const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
+// Aggressive call control to protect API credits.
+const GROQ_MIN_CALL_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const GROQ_INVALID_KEY_LOCK_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+interface CachedAIResponse {
+  interpretation: string;
+  model: string | null;
+  prediction?: {
+    flood_probability: number;
+    alert_level: string;
+    method?: string;
+  };
+  timestamp: string;
+  error: boolean;
+}
+
+let lastGroqCallAt = 0;
+let groqLockedUntil = 0;
+let cachedResponse: CachedAIResponse | null = null;
+
 const SYSTEM_PROMPT = `You are the AI analyst for RAPID RELAY, a hyper-localized flood early warning system deployed in Obando, Bulacan, Philippines.
 
 You receive real-time sensor data from 5 IoT nodes and ML flood predictions (XGBoost model trained on 9 years of environmental data). Your job is to provide a concise, actionable flood risk interpretation for emergency responders and barangay officials.
@@ -48,13 +68,34 @@ function classifyAlert(prob: number): string {
 }
 
 export async function GET() {
+  const nowMs = Date.now();
+
   if (!GROQ_API_KEY) {
-    return NextResponse.json({
+    const response: CachedAIResponse = {
       interpretation: "AI interpretation unavailable — GROQ_API_KEY not configured.",
       model: null,
       error: true,
       timestamp: new Date().toISOString(),
-    });
+    };
+    cachedResponse = response;
+    return NextResponse.json(response);
+  }
+
+  if (groqLockedUntil > nowMs) {
+    const mins = Math.ceil((groqLockedUntil - nowMs) / 60000);
+    const response: CachedAIResponse = {
+      interpretation: `AI interpretation temporarily disabled due to invalid Groq key. Retry in ~${mins} min or update GROQ_API_KEY.`,
+      model: GROQ_MODEL,
+      error: true,
+      timestamp: new Date().toISOString(),
+    };
+    cachedResponse = response;
+    return NextResponse.json(response);
+  }
+
+  // Return cached response during cooldown to avoid repeated paid API calls.
+  if (cachedResponse && nowMs - lastGroqCallAt < GROQ_MIN_CALL_INTERVAL_MS) {
+    return NextResponse.json(cachedResponse);
   }
 
   try {
@@ -163,28 +204,43 @@ Provide your flood risk interpretation and recommended actions.`;
 
     if (!response.ok) {
       const errText = await response.text();
+
+      if (response.status === 401 || errText.toLowerCase().includes("invalid_api_key")) {
+        groqLockedUntil = Date.now() + GROQ_INVALID_KEY_LOCK_MS;
+      }
+
       throw new Error(`Groq API ${response.status}: ${errText}`);
     }
 
     const result = await response.json();
     const text = result.choices?.[0]?.message?.content || "";
 
-    return NextResponse.json({
+    const okResponse: CachedAIResponse = {
       interpretation: text.trim(),
       model: GROQ_MODEL,
       prediction,
       timestamp: now,
       error: false,
-    });
+    };
+
+    lastGroqCallAt = Date.now();
+    cachedResponse = okResponse;
+    return NextResponse.json(okResponse);
   } catch (e) {
     const errorMsg = e instanceof Error ? e.message : "Unknown error";
     const isTimeout = errorMsg.includes("abort") || errorMsg.includes("timeout");
 
-    return NextResponse.json({
+    const errResponse: CachedAIResponse = {
       interpretation: `AI interpretation failed: ${isTimeout ? "Groq API timeout (10s)" : errorMsg}`,
       model: GROQ_MODEL,
       timestamp: new Date().toISOString(),
       error: true,
-    });
+    };
+
+    // Cache error response too so repeated polling doesn't keep hammering provider.
+    lastGroqCallAt = Date.now();
+    cachedResponse = errResponse;
+
+    return NextResponse.json(errResponse);
   }
 }

@@ -4,9 +4,7 @@
 // Subscribes to Supabase Realtime for live environmental data.
 // Primary data source for production deployments.
 //
-// IMPORTANT: Calculates water_level from Final Distance:
-//   water_level [m] = dike_height [m] - final_distance [m]
-//   dike_height = 4.038m (Obando Multipurpose Dike, 13'3")
+// IMPORTANT: Listens to live inserts from obando_environmental_data.
 // =============================================================================
 
 "use client";
@@ -24,13 +22,13 @@ const OBANDO_LNG = 120.9358;
 // Water level calculation constant
 const DIKE_HEIGHT_M = 4.038; // 13'3" = 4.038 meters
 
-// Raw row from Supabase (actual column names with spaces/quotes)
+// Raw row from Supabase obando_environmental_data table
 interface SupabaseRawReading {
   id: number;
-  "Soil Moisture": number;
-  "Temperature": number;
-  "Humidity": number;
-  "Pressure": number;
+  "Soil Moisture": number | null;
+  "Temperature": number | null;
+  "Humidity": number | null;
+  "Pressure": number | null;
   "Final Distance": number | null;
   "Date": string | null;
   "Time": string | null;
@@ -62,7 +60,7 @@ export function useSupabaseRealtime() {
         (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
           const row = payload.new as SupabaseRawReading;
 
-          // Combine Date and Time into a timestamp
+          // Combine Date + Time into timestamp
           let timestamp = new Date().toISOString();
           if (row["Date"] && row["Time"]) {
             timestamp = `${row["Date"]}T${row["Time"]}`;
@@ -70,14 +68,13 @@ export function useSupabaseRealtime() {
             timestamp = `${row["Date"]}T00:00:00`;
           }
 
-          // Calculate water level from Final Distance
-          // water_level [m] = dike_height [m] - final_distance [m]
-          let water_level: number | null = null;
-          if (row["Final Distance"] != null && row["Final Distance"] >= 0) {
-            water_level = Math.max(0, DIKE_HEIGHT_M - row["Final Distance"]);
+          // Compute water level from measured distance.
+          let waterLevel: number | null = null;
+          if (typeof row["Final Distance"] === "number" && row["Final Distance"] >= 0) {
+            waterLevel = Math.max(0, DIKE_HEIGHT_M - row["Final Distance"]);
           }
 
-          // Build a GeoJSON feature from the environmental data
+          // Build a GeoJSON feature from live obando_environmental_data.
           const feature = {
             type: "Feature" as const,
             geometry: {
@@ -85,12 +82,12 @@ export function useSupabaseRealtime() {
               coordinates: [OBANDO_LNG, OBANDO_LAT] as [number, number],
             },
             properties: {
-              sensor_id: "obando-main",
+              sensor_id: row["Device"] || "obando-main",
               name: "Obando Environmental Sensor",
               type: "multi",
               latitude: OBANDO_LAT,
               longitude: OBANDO_LNG,
-              water_level,
+              water_level: waterLevel,
               rainfall: null,
               humidity: row["Humidity"] ?? null,
               temperature: row["Temperature"] ?? null,

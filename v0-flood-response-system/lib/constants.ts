@@ -114,6 +114,20 @@ export const DEPLOYMENT = {
  *   - Normal: < 75 %
  *   - Warning: 75–90 %  (rain likely within 1 hour)
  *   - Critical: > 90 %  (heavy downpour imminent or ongoing)
+ *
+ * Temperature (BME680):
+ *   - Ambient air temperature correlates with convection intensity and
+ *     thermal stress on dike structures.
+ *   - Normal: < 35 °C
+ *   - Warning: 35–40 °C  (heat-induced ground expansion / stress)
+ *   - Critical: > 40 °C  (extreme thermal stress)
+ *
+ * Barometric Pressure (BME680):
+ *   - Lower atmospheric pressure indicates approaching weather systems
+ *     and storm potential.
+ *   - Normal: > 950 hPa
+ *   - Warning: 950–900 hPa  (approaching low-pressure weather system)
+ *   - Critical: < 900 hPa  (severe storm imminent)
  */
 export const SENSOR_REGISTRY: Record<SensorId, SensorMeta> = {
   ultrasonic_water_level: {
@@ -161,6 +175,36 @@ export const SENSOR_REGISTRY: Record<SensorId, SensorMeta> = {
     fallbackValue: 55,
     placement: "Mounted on dike-top railing, 1.5 m above crest",
   },
+  temperature_bme680: {
+    id: "temperature_bme680",
+    label: "Temperature Sensor (BME680)",
+    shortLabel: "Temperature",
+    description:
+      "BME680 environmental sensor measuring ambient air temperature. " +
+      "Correlates with convection intensity and thermal stress on " +
+      "dike structures.",
+    unit: "°C",
+    imperialUnit: "°F",
+    validRange: { min: -10, max: 60 },
+    thresholds: { warning: 35, critical: 40 },
+    fallbackValue: 25,
+    placement: "Mounted on dike-top railing, 1.5 m above crest",
+  },
+  pressure_bme680: {
+    id: "pressure_bme680",
+    label: "Barometric Pressure Sensor (BME680)",
+    shortLabel: "Pressure",
+    description:
+      "BME680 environmental sensor measuring atmospheric pressure. " +
+      "Lower pressure indicates approaching weather systems and " +
+      "potential storm development.",
+    unit: "hPa",
+    imperialUnit: "inHg",
+    validRange: { min: 850, max: 1050 },
+    thresholds: { warning: 950, critical: 900 },
+    fallbackValue: 1013,
+    placement: "Mounted on dike-top railing, 1.5 m above crest",
+  },
   rain_gauge: {
     id: "rain_gauge",
     label: "Optical Rain Gauge",
@@ -204,6 +248,8 @@ export const ALL_SENSOR_IDS: SensorId[] = [
   "ultrasonic_water_level",
   "capacitive_soil_moisture",
   "humidity_dht22",
+  "temperature_bme680",
+  "pressure_bme680",
 ]
 
 // ---------------------------------------------------------------------------

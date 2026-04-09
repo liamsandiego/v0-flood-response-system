@@ -37,6 +37,20 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
     }))
   }, [history])
 
+  const temperatureData = useMemo(() => {
+    return history.map((snap) => ({
+      time: snap.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      value: snap.temperature?.effectiveValue ?? 0,
+    }))
+  }, [history])
+
+  const pressureData = useMemo(() => {
+    return history.map((snap) => ({
+      time: snap.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      value: snap.pressure?.effectiveValue ?? 0,
+    }))
+  }, [history])
+
   const waterMeta = SENSOR_REGISTRY.ultrasonic_water_level
   const soilMeta = SENSOR_REGISTRY.capacitive_soil_moisture
   const humidMeta = SENSOR_REGISTRY.humidity_dht22
@@ -49,6 +63,8 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
   const waterConfig = { value: { label: `Water Level (${waterUnit})`, color: "var(--chart-1)" } }
   const soilConfig = { value: { label: "Soil Moisture (%)", color: "var(--chart-2)" } }
   const humidConfig = { value: { label: "Humidity (%)", color: "var(--chart-3)" } }
+  const tempConfig = { value: { label: "Temperature (°C)", color: "var(--chart-4)" } }
+  const pressConfig = { value: { label: "Pressure (hPa)", color: "var(--chart-5)" } }
 
   if (history.length < 2) {
     return (
@@ -153,6 +169,74 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
                   dataKey="value"
                   stroke="var(--color-value)"
                   name="Humidity (%)"
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: "var(--color-value)" }}
+                  activeDot={{ r: 5 }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartContainer>
+        </CardContent>
+      </Card>
+
+      {/* Temperature */}
+      <Card className="overflow-hidden">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base md:text-lg">Temperature Trend</CardTitle>
+          <CardDescription className="text-xs md:text-sm">
+            Warning=35°C, Critical=40°C
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-2 md:p-6 pt-0">
+          <ChartContainer config={tempConfig} className="h-[180px] md:h-[250px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={temperatureData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10 }} domain={["dataMin - 5", "dataMax + 5"]} width={35} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <ReferenceLine y={35} stroke="#f59e0b" strokeDasharray="6 3" />
+                <ReferenceLine y={40} stroke="#ef4444" strokeDasharray="6 3" />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  stroke="var(--color-value)"
+                  name="Temperature (°C)"
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: "var(--color-value)" }}
+                  activeDot={{ r: 5 }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartContainer>
+        </CardContent>
+      </Card>
+
+      {/* Pressure */}
+      <Card className="overflow-hidden">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base md:text-lg">Pressure Trend</CardTitle>
+          <CardDescription className="text-xs md:text-sm">
+            Warning=950hPa, Critical=900hPa
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-2 md:p-6 pt-0">
+          <ChartContainer config={pressConfig} className="h-[180px] md:h-[250px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={pressureData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10 }} domain={["dataMin - 10", "dataMax + 10"]} width={35} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <ReferenceLine y={950} stroke="#f59e0b" strokeDasharray="6 3" />
+                <ReferenceLine y={900} stroke="#ef4444" strokeDasharray="6 3" />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  stroke="var(--color-value)"
+                  name="Pressure (hPa)"
                   strokeWidth={2}
                   dot={{ r: 3, fill: "var(--color-value)" }}
                   activeDot={{ r: 5 }}

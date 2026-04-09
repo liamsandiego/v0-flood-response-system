@@ -7,8 +7,10 @@ import { METERS_TO_FEET, SENSOR_REGISTRY } from "./constants"
 
 /**
  * Converts a sensor value from metric to the target unit system.
- * Only the ultrasonic water level sensor uses meters; soil moisture
- * and humidity are already percentages (unit-agnostic).
+ * Water level: meters to feet
+ * Temperature: Celsius to Fahrenheit
+ * Pressure: hPa to inHg
+ * Soil moisture, humidity: already percentages (unit-agnostic)
  */
 export function convertValue(
   sensorId: SensorId,
@@ -17,9 +19,19 @@ export function convertValue(
 ): number {
   if (targetUnit === "metric") return valueInMetric
 
-  // Only water level is distance-based
+  // Water level: meters to feet
   if (sensorId === "ultrasonic_water_level") {
     return valueInMetric * METERS_TO_FEET
+  }
+
+  // Temperature: Celsius to Fahrenheit
+  if (sensorId === "temperature_bme680") {
+    return (valueInMetric * 9) / 5 + 32
+  }
+
+  // Pressure: hPa to inHg (1 hPa = 0.02953 inHg)
+  if (sensorId === "pressure_bme680") {
+    return valueInMetric * 0.02953
   }
 
   // Percentages don't convert
@@ -48,6 +60,16 @@ export function formatSensorValue(
 
   if (sensorId === "ultrasonic_water_level") {
     return `${converted.toFixed(2)} ${displayUnit}`
+  }
+
+  // Temperature: 1 decimal place
+  if (sensorId === "temperature_bme680") {
+    return `${converted.toFixed(1)} ${displayUnit}`
+  }
+
+  // Pressure: 0 decimal places (hPa/inHg)
+  if (sensorId === "pressure_bme680") {
+    return `${converted.toFixed(0)} ${displayUnit}`
   }
 
   // Percentages: 1 decimal place

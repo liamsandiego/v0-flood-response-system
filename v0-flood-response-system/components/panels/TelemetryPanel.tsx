@@ -171,6 +171,14 @@ export default function TelemetryPanel() {
                       }
                     />
                     <TelemetryRow
+                      label="SOIL"
+                      value={
+                        sensor.soil_moisture != null
+                          ? `${sensor.soil_moisture.toFixed(0)}%`
+                          : "N/A"
+                      }
+                    />
+                    <TelemetryRow
                       label="TEMP"
                       value={
                         sensor.temperature != null

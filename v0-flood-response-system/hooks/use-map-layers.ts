@@ -21,7 +21,7 @@ import { defaultMapLayerConfig } from "@/lib/map-types"
 
 const STORAGE_KEY = "rapidrelay_map_layers"
 // Bump this when MapLayerConfig shape changes — clears stale localStorage automatically
-const SCHEMA_VERSION = "v3"
+const SCHEMA_VERSION = "v4"
 
 /** Valid Mapbox base map keys */
 const VALID_BASE_MAPS: BaseMapStyle[] = ["dark", "satellite", "streets", "outdoors"]

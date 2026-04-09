@@ -39,11 +39,23 @@ export function useHimawari(
   animating: boolean,
   animationSpeed: number
 ): UseHimawariReturn {
+  const frameCount = useMemo(() => {
+    if (typeof navigator === "undefined") return 10
+    const nav = navigator as Navigator & { deviceMemory?: number }
+    const mem = nav.deviceMemory ?? 8
+    const cores = navigator.hardwareConcurrency ?? 4
+
+    // Keep animation visually continuous; avoid dropping to near-static frame counts.
+    if (mem <= 4 || cores <= 4) return 10
+    if (mem <= 8) return 12
+    return 16
+  }, [])
+
   // Generate all frames with URLs — regenerate when product changes
   const frames = useMemo(() => {
     if (!enabled) return []
-    return generateHimawariFrames(product, 24) // 24 hourly frames (past 24h)
-  }, [enabled, product])
+    return generateHimawariFrames(product, frameCount)
+  }, [enabled, product, frameCount])
 
   // Start at the latest frame
   const [activeIndex, setActiveIndex] = useState(0)
@@ -101,7 +113,7 @@ export function useHimawari(
     return () => cancelAnimationFrame(rafId)
   }, [enabled, animating, animationSpeed, frames.length, nextFrame])
 
-  // Prefetch adjacent frames for instant navigation
+  // Prefetch adjacent frames to keep animation smooth while scrubbing/playing.
   useEffect(() => {
     if (!enabled || frames.length === 0) return
     const prefetchIndices = [

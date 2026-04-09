@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -19,9 +19,63 @@ interface AlertHistoryProps {
   userRole: UserRole
 }
 
-// Module-level cache to persist data across tab switches
-let cachedPredictions: FloodPrediction[] = []
-let predictionsLoaded = false
+const REFRESH_INTERVAL_MS = 20_000
+const FETCH_TIMEOUT_MS = 12_000
+const INITIAL_FETCH_LIMIT = 120
+const POLL_FETCH_LIMIT = 30
+const MAX_PREDICTIONS = 200
+const HISTORY_CACHE_KEY = "rapidrelay:history-tab-cache:v1"
+const HISTORY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
+interface HistoryCachePayload {
+  updatedAt: number
+  predictions: FloodPrediction[]
+}
+
+function readHistoryCache(): FloodPrediction[] {
+  if (typeof window === "undefined") return []
+  try {
+    const raw = window.localStorage.getItem(HISTORY_CACHE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as HistoryCachePayload
+    if (!parsed?.updatedAt || !Array.isArray(parsed.predictions)) return []
+    if (Date.now() - parsed.updatedAt > HISTORY_CACHE_MAX_AGE_MS) return []
+    return parsed.predictions
+  } catch {
+    return []
+  }
+}
+
+function writeHistoryCache(predictions: FloodPrediction[]) {
+  if (typeof window === "undefined") return
+  try {
+    const payload: HistoryCachePayload = {
+      updatedAt: Date.now(),
+      predictions,
+    }
+    window.localStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify(payload))
+  } catch {
+    // Ignore quota/storage failures; live data still works.
+  }
+}
+
+function predictionTime(p: FloodPrediction): number {
+  const raw = p.created_at ?? p.timestamp
+  if (!raw) return 0
+  const t = new Date(raw).getTime()
+  return Number.isFinite(t) ? t : 0
+}
+
+function sortPredictions(predictions: FloodPrediction[]) {
+  return [...predictions].sort((a, b) => predictionTime(b) - predictionTime(a))
+}
+
+function mergePredictions(prev: FloodPrediction[], incoming: FloodPrediction[]) {
+  const map = new Map<string, FloodPrediction>()
+  for (const p of prev) map.set(p.id, p)
+  for (const p of incoming) map.set(p.id, p)
+  return sortPredictions(Array.from(map.values())).slice(0, MAX_PREDICTIONS)
+}
 
 function getRiskTierColor(tier: string | null) {
   const t = (tier || "").toLowerCase()
@@ -45,43 +99,76 @@ function getProbabilityColor(prob: number) {
 }
 
 export function AlertHistory({ userRole }: AlertHistoryProps) {
-  const [predictions, setPredictions] = useState<FloodPrediction[]>(cachedPredictions)
-  const [loading, setLoading] = useState(!predictionsLoaded)
+  const [predictions, setPredictions] = useState<FloodPrediction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const fetchingRef = useRef(false)
+  const hasHydratedCacheRef = useRef(false)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
-  useEffect(() => {
-    // Skip if already fetching or data already loaded
-    if (fetchingRef.current || predictionsLoaded) {
-      setLoading(false)
-      return
-    }
+  const fetchPredictions = useCallback(async (initial = false) => {
+    if (fetchingRef.current) return
     fetchingRef.current = true
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
-    const fetchPredictions = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("flood_predictions")
-          .select("id, timestamp, flood_probability, risk_tier, created_at")
-          .order("timestamp", { ascending: false })
-          .limit(100)
+    if (initial && predictions.length === 0) {
+      setLoading(true)
+    } else {
+      setRefreshing(true)
+    }
 
-        if (error) {
-          console.error("[AlertHistory] Failed to fetch predictions:", error)
-        } else if (data) {
-          cachedPredictions = data as FloodPrediction[]
-          predictionsLoaded = true
-          setPredictions(cachedPredictions)
-          console.log(`[AlertHistory] Loaded ${data.length} predictions from flood_predictions`)
-        }
-      } catch (err) {
-        console.error("[AlertHistory] Error fetching predictions:", err)
-      } finally {
+    try {
+      const { data, error } = await supabase
+        .from("flood_predictions")
+        .select("id, timestamp, flood_probability, risk_tier, created_at")
+        .abortSignal(controller.signal)
+        .order("created_at", { ascending: false })
+        .limit(initial ? INITIAL_FETCH_LIMIT : POLL_FETCH_LIMIT)
+
+      if (error) {
+        console.error("[AlertHistory] Failed to fetch predictions:", error)
+        setFetchError(error.message ?? "Failed to fetch predictions")
+      } else if (data) {
+        const incoming = data as FloodPrediction[]
+        setPredictions((prev) => (initial ? sortPredictions(incoming) : mergePredictions(prev, incoming)))
+        setFetchError(null)
+      }
+    } catch (err) {
+      console.error("[AlertHistory] Error fetching predictions:", err)
+      const isAbortError = err instanceof Error && err.name === "AbortError"
+      setFetchError(isAbortError ? "Request timed out. Retrying..." : "Network error while fetching predictions")
+    } finally {
+      clearTimeout(timeoutId)
+      setLoading(false)
+      setRefreshing(false)
+      fetchingRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hasHydratedCacheRef.current) {
+      const cachedPredictions = readHistoryCache()
+      if (cachedPredictions.length > 0) {
+        setPredictions(sortPredictions(cachedPredictions).slice(0, MAX_PREDICTIONS))
         setLoading(false)
-        fetchingRef.current = false
+      }
+      hasHydratedCacheRef.current = true
+      fetchPredictions(cachedPredictions.length === 0)
+    }
+
+    // Polling fallback if realtime misses events/disconnects.
+    const interval = setInterval(fetchPredictions, REFRESH_INTERVAL_MS)
+
+    // Refresh immediately when user returns to the tab/window.
+    const onFocus = () => {
+      if (document.visibilityState === "visible") {
+        fetchPredictions()
       }
     }
-    fetchPredictions()
+    window.addEventListener("focus", onFocus)
+    document.addEventListener("visibilitychange", onFocus)
 
     // Realtime: new predictions pushed live (only subscribe once)
     if (!channelRef.current) {
@@ -89,19 +176,44 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
         .channel("flood-predictions-realtime")
         .on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table: "flood_predictions" },
+          { event: "*", schema: "public", table: "flood_predictions" },
           (payload: any) => {
-            cachedPredictions = [payload.new as FloodPrediction, ...cachedPredictions].slice(0, 100)
-            setPredictions(cachedPredictions)
+            const eventType = payload?.eventType as string | undefined
+            if (eventType === "DELETE") {
+              const deletedId = String(payload?.old?.id ?? "")
+              setPredictions((prev) => prev.filter((p) => p.id !== deletedId))
+              return
+            }
+
+            const incoming = payload.new as FloodPrediction
+            setPredictions((prev) => mergePredictions(prev, [incoming]))
           }
         )
-        .subscribe()
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            fetchPredictions()
+          }
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            fetchPredictions()
+          }
+        })
     }
 
     return () => {
-      // Don't unsubscribe on unmount - keep connection alive
+      clearInterval(interval)
+      window.removeEventListener("focus", onFocus)
+      document.removeEventListener("visibilitychange", onFocus)
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current)
+        channelRef.current = null
+      }
     }
-  }, [])
+  }, [fetchPredictions])
+
+  useEffect(() => {
+    if (!hasHydratedCacheRef.current) return
+    writeHistoryCache(predictions.slice(0, MAX_PREDICTIONS))
+  }, [predictions])
 
   const highRiskCount = predictions.filter((p) => {
     const t = (p.risk_tier || "").toLowerCase()
@@ -119,6 +231,7 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
             </CardTitle>
             <CardDescription className="text-xs md:text-sm">
               {loading ? "Loading…" : `${predictions.length} prediction${predictions.length !== 1 ? "s" : ""}`}
+              {refreshing && !loading && " • Refreshing..."}
               {highRiskCount > 0 && (
                 <span className="text-red-500 font-semibold ml-1">
                   • {highRiskCount} high risk
@@ -129,10 +242,16 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
         </div>
       </CardHeader>
       <CardContent className="px-3 md:px-6">
-        {loading ? (
+        {loading && predictions.length === 0 ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <div className="h-5 w-5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin mr-3" />
             <span className="text-sm">Loading predictions from Supabase...</span>
+          </div>
+        ) : fetchError && predictions.length === 0 ? (
+          <div className="py-12 text-center text-muted-foreground">
+            <ShieldAlert className="h-8 w-8 mx-auto mb-2 opacity-50" />
+            <p className="text-sm">Unable to load predictions right now.</p>
+            <p className="text-xs mt-1 text-muted-foreground/60">{fetchError}</p>
           </div>
         ) : predictions.length === 0 ? (
           <div className="py-12 text-center text-muted-foreground">

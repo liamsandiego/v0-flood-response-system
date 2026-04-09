@@ -45,6 +45,17 @@ interface AuthContextType {
   logout: () => Promise<void>
 }
 
+const AUTH_REQUEST_TIMEOUT_MS = 15_000
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
+    }),
+  ])
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 async function fetchProfile(authUser: SupabaseUser): Promise<User> {
@@ -119,9 +130,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Login requires a valid Supabase email + password — no bypass
   const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) return { success: false, error: error.message }
-    return { success: true }
+    try {
+      const result = await withTimeout(
+        supabase.auth.signInWithPassword({ email: email.trim(), password }),
+        AUTH_REQUEST_TIMEOUT_MS,
+        "Login request timed out"
+      )
+      const { error } = result
+
+      if (error) return { success: false, error: error.message }
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : "Login failed" }
+    }
   }, [])
 
   // Logout: signOut triggers SIGNED_OUT → onAuthStateChange sets user to null
@@ -130,9 +151,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const resetPassword = useCallback(async (email: string): Promise<{ success: boolean; error?: string }> => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email)
-    if (error) return { success: false, error: error.message }
-    return { success: true }
+    try {
+      const result = await withTimeout(
+        supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined,
+        }),
+        AUTH_REQUEST_TIMEOUT_MS,
+        "Reset password request timed out"
+      )
+      const { error } = result
+
+      if (error) return { success: false, error: error.message }
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : "Reset password failed" }
+    }
   }, [])
 
   if (isLoading) {

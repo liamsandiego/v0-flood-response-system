@@ -38,3 +38,17 @@ GRANT SELECT ON obando_environmental_data TO anon, authenticated;
 SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual
 FROM pg_policies
 WHERE tablename = 'obando_environmental_data';
+
+-- =============================================================================
+-- Performance indexes for dashboard queries
+-- Run once to keep Data and History tab queries fast as rows grow.
+-- =============================================================================
+
+CREATE INDEX IF NOT EXISTS idx_obando_environmental_data_id_desc
+  ON public.obando_environmental_data (id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_flood_predictions_created_at_desc
+  ON public.flood_predictions (created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_flood_predictions_timestamp_desc
+  ON public.flood_predictions ("timestamp" DESC);

@@ -5,7 +5,7 @@
 // Includes: Map style selector (Satellite/Dark/Streets/Outdoors)
 //           RainViewer radar overlay as raster tiles
 //           Himawari satellite overlay (NASA GIBS)
-//           Sentinel-1 flood extent polygons (real GEE data + mock fallback)
+//           AOI and realtime sensor overlays from database-backed feeds
 //           3D terrain with DEM
 // =============================================================================
 

@@ -12,7 +12,7 @@ import { Brain, RefreshCw, AlertTriangle } from "lucide-react";
 import GlassCard from "./GlassCard";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "";
-const REFRESH_INTERVAL = 60_000; // 60 seconds
+const REFRESH_INTERVAL = 30 * 60_000; // 30 minutes
 
 interface AIResponse {
   interpretation: string;
@@ -29,6 +29,7 @@ export default function AIInterpretationPanel() {
   const [data, setData] = useState<AIResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
+  const [autoRefreshPaused, setAutoRefreshPaused] = useState(false);
 
   const fetchInterpretation = useCallback(async () => {
     setLoading(true);
@@ -49,6 +50,17 @@ export default function AIInterpretationPanel() {
       const json: AIResponse = await res.json();
       setData(json);
       setLastFetched(new Date());
+
+      const lowerMsg = (json.interpretation || "").toLowerCase();
+      const keyIssue =
+        lowerMsg.includes("invalid api key") ||
+        lowerMsg.includes("invalid_api_key") ||
+        lowerMsg.includes("not configured") ||
+        lowerMsg.includes("temporarily disabled");
+
+      if (json.error && keyIssue) {
+        setAutoRefreshPaused(true);
+      }
     } catch (e) {
       setData({
         interpretation: `Failed to connect to AI service: ${e instanceof Error ? e.message : "Unknown error"}`,
@@ -56,17 +68,20 @@ export default function AIInterpretationPanel() {
         timestamp: new Date().toISOString(),
         error: true,
       });
+      setAutoRefreshPaused(true);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Auto-fetch on mount + every 60s
+  // Auto-fetch on mount + interval (unless paused due to key/config errors)
   useEffect(() => {
     fetchInterpretation();
+    if (autoRefreshPaused) return;
+
     const interval = setInterval(fetchInterpretation, REFRESH_INTERVAL);
     return () => clearInterval(interval);
-  }, [fetchInterpretation]);
+  }, [fetchInterpretation, autoRefreshPaused]);
 
   return (
     <GlassCard className="flex flex-col">
@@ -86,7 +101,10 @@ export default function AIInterpretationPanel() {
               </span>
             )}
             <button
-              onClick={fetchInterpretation}
+              onClick={() => {
+                setAutoRefreshPaused(false);
+                fetchInterpretation();
+              }}
               disabled={loading}
               className="text-white/30 hover:text-white/60 transition-colors disabled:opacity-30"
               title="Refresh interpretation"
@@ -132,7 +150,7 @@ export default function AIInterpretationPanel() {
       {lastFetched && (
         <div className="px-4 pb-3 pt-1 border-t border-white/5">
           <div className="flex items-center justify-between font-mono text-[8px] text-white/20">
-            <span>Auto-refresh: 60s</span>
+            <span>{autoRefreshPaused ? "Auto-refresh: paused" : "Auto-refresh: 30m"}</span>
             <span>
               {lastFetched.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </span>

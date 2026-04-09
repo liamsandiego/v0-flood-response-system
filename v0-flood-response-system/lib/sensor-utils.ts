@@ -17,6 +17,8 @@ const THRESHOLDS = {
   water_level: { warning: 1.5, critical: 2.5 },
   soil_moisture: { warning: 60, critical: 80 },
   humidity: { warning: 75, critical: 90 },
+  temperature: { warning: 35, critical: 40 },
+  pressure: { warning: 950, critical: 900 },
   rainfall: { warning: 7.5, critical: 30 },
 } as const
 
@@ -43,6 +45,31 @@ function classify(
   return "normal"
 }
 
+function makeUnavailableReading(
+  sensorId: SensorReading["sensorId"],
+  timestamp: Date
+): SensorReading {
+  return {
+    sensorId,
+    value: Number.NaN,
+    isValid: false,
+    invalidReason: "No realtime data",
+    effectiveValue: Number.NaN,
+    timestamp,
+    status: "normal",
+  }
+}
+
+function classifyInverse(
+  value: number,
+  thresholds: { warning: number; critical: number }
+): AlertLevel {
+  // For sensors where lower values are more dangerous (e.g., barometric pressure).
+  if (value <= thresholds.critical) return "critical"
+  if (value <= thresholds.warning) return "warning"
+  return "normal"
+}
+
 /**
  * Build a SensorSnapshot from the Zustand store's live data.
  *
@@ -64,54 +91,113 @@ export function buildSnapshotFromStore(
   let totalWater = 0
   let totalSoil = 0
   let totalHumidity = 0
+  let totalTemperature = 0
+  let totalPressure = 0
+  let waterCount = 0
+  let soilCount = 0
+  let humidityCount = 0
+  let temperatureCount = 0
+  let pressureCount = 0
   let maxRainfall = 0
   let count = 0
 
   for (const f of features) {
     const p = f.properties
     if (!p.is_valid) continue
-    totalWater += p.water_level ?? 0
-    totalSoil += p.soil_moisture ?? 0
-    totalHumidity += p.humidity ?? 0
+    if (typeof p.water_level === "number") {
+      totalWater += p.water_level
+      waterCount++
+    }
+    if (typeof p.soil_moisture === "number") {
+      totalSoil += p.soil_moisture
+      soilCount++
+    }
+    if (typeof p.humidity === "number") {
+      totalHumidity += p.humidity
+      humidityCount++
+    }
+    if (typeof p.temperature === "number") {
+      totalTemperature += p.temperature
+      temperatureCount++
+    }
+    if (typeof p.pressure === "number") {
+      totalPressure += p.pressure
+      pressureCount++
+    }
     maxRainfall = Math.max(maxRainfall, p.rainfall ?? 0)
     count++
   }
 
   if (count === 0) return null
 
-  const avgWater = totalWater / count
-  const avgSoil = totalSoil / count
-  const avgHumidity = totalHumidity / count
+  const avgWater = waterCount > 0 ? totalWater / waterCount : null
+  const avgSoil = soilCount > 0 ? totalSoil / soilCount : null
+  const avgHumidity = humidityCount > 0 ? totalHumidity / humidityCount : null
+  const avgTemperature = temperatureCount > 0 ? totalTemperature / temperatureCount : null
+  const avgPressure = pressureCount > 0 ? totalPressure / pressureCount : null
 
   // Build individual sensor readings
   const now = new Date()
 
-  const waterLevel: SensorReading = {
-    sensorId: "ultrasonic_water_level",
-    value: avgWater,
-    isValid: true,
-    effectiveValue: avgWater,
-    timestamp: now,
-    status: classify(avgWater, THRESHOLDS.water_level),
-  }
+  const waterLevel: SensorReading =
+    avgWater == null
+      ? makeUnavailableReading("ultrasonic_water_level", now)
+      : {
+          sensorId: "ultrasonic_water_level",
+          value: avgWater,
+          isValid: true,
+          effectiveValue: avgWater,
+          timestamp: now,
+          status: classify(avgWater, THRESHOLDS.water_level),
+        }
 
-  const soilMoisture: SensorReading = {
-    sensorId: "capacitive_soil_moisture",
-    value: avgSoil,
-    isValid: true,
-    effectiveValue: avgSoil,
-    timestamp: now,
-    status: classify(avgSoil, THRESHOLDS.soil_moisture),
-  }
+  const soilMoisture: SensorReading =
+    avgSoil == null
+      ? makeUnavailableReading("capacitive_soil_moisture", now)
+      : {
+          sensorId: "capacitive_soil_moisture",
+          value: avgSoil,
+          isValid: true,
+          effectiveValue: avgSoil,
+          timestamp: now,
+          status: classify(avgSoil, THRESHOLDS.soil_moisture),
+        }
 
-  const humidity: SensorReading = {
-    sensorId: "humidity_dht22",
-    value: avgHumidity,
-    isValid: true,
-    effectiveValue: avgHumidity,
-    timestamp: now,
-    status: classify(avgHumidity, THRESHOLDS.humidity),
-  }
+  const humidity: SensorReading =
+    avgHumidity == null
+      ? makeUnavailableReading("humidity_dht22", now)
+      : {
+          sensorId: "humidity_dht22",
+          value: avgHumidity,
+          isValid: true,
+          effectiveValue: avgHumidity,
+          timestamp: now,
+          status: classify(avgHumidity, THRESHOLDS.humidity),
+        }
+
+  const temperature: SensorReading =
+    avgTemperature == null
+      ? makeUnavailableReading("temperature_bme680", now)
+      : {
+          sensorId: "temperature_bme680",
+          value: avgTemperature,
+          isValid: true,
+          effectiveValue: avgTemperature,
+          timestamp: now,
+          status: classify(avgTemperature, THRESHOLDS.temperature),
+        }
+
+  const pressure: SensorReading =
+    avgPressure == null
+      ? makeUnavailableReading("pressure_bme680", now)
+      : {
+          sensorId: "pressure_bme680",
+          value: avgPressure,
+          isValid: true,
+          effectiveValue: avgPressure,
+          timestamp: now,
+          status: classifyInverse(avgPressure, THRESHOLDS.pressure),
+        }
 
   // Risk and flood data from prediction
   const risk = prediction?.flood_probability ?? 0
@@ -139,7 +225,7 @@ export function buildSnapshotFromStore(
     overallStatus = mapAlertLevel(prediction.alert_level)
   } else {
     // Fallback: use worst sensor status
-    const statuses = [waterLevel.status, soilMoisture.status, humidity.status]
+    const statuses = [waterLevel.status, soilMoisture.status, humidity.status, temperature.status, pressure.status]
     if (statuses.includes("critical")) overallStatus = "critical"
     else if (statuses.includes("warning")) overallStatus = "warning"
   }
@@ -148,6 +234,8 @@ export function buildSnapshotFromStore(
     waterLevel,
     soilMoisture,
     humidity,
+    temperature,
+    pressure,
     rainfall: maxRainfall,
     floodExtent,
     wetnessTrend,

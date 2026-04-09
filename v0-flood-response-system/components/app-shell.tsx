@@ -285,6 +285,8 @@ export default function AppShell() {
       case "ultrasonic_water_level": return <Waves className="h-4 w-4 text-blue-400" />
       case "capacitive_soil_moisture": return <Droplets className="h-4 w-4 text-amber-400" />
       case "humidity_dht22": return <ThermometerSun className="h-4 w-4 text-teal-400" />
+      case "temperature_bme680": return <ThermometerSun className="h-4 w-4 text-orange-400" />
+      case "pressure_bme680": return <TrendingDown className="h-4 w-4 text-cyan-400" />
       default: return <Activity className="h-4 w-4" />
     }
   }
@@ -299,16 +301,39 @@ export default function AppShell() {
   // ── Sensor card renderer ──
   const renderSensorCard = (sensorId: string) => {
     if (!snapshot) return null
-    if (sensorId !== "ultrasonic_water_level" && sensorId !== "capacitive_soil_moisture" && sensorId !== "humidity_dht22") return null
+    if (
+      sensorId !== "ultrasonic_water_level" &&
+      sensorId !== "capacitive_soil_moisture" &&
+      sensorId !== "humidity_dht22" &&
+      sensorId !== "temperature_bme680" &&
+      sensorId !== "pressure_bme680"
+    ) return null
 
     const meta = SENSOR_REGISTRY[sensorId]
-    const reading =
-      sensorId === "ultrasonic_water_level" ? snapshot.waterLevel :
-        sensorId === "capacitive_soil_moisture" ? snapshot.soilMoisture :
-          snapshot.humidity
+    let reading: SensorReading
+    switch (sensorId) {
+      case "ultrasonic_water_level":
+        reading = snapshot.waterLevel
+        break
+      case "capacitive_soil_moisture":
+        reading = snapshot.soilMoisture
+        break
+      case "humidity_dht22":
+        reading = snapshot.humidity
+        break
+      case "temperature_bme680":
+        reading = snapshot.temperature
+        break
+      case "pressure_bme680":
+        reading = snapshot.pressure
+        break
+      default:
+        return null
+    }
     const online = isSensorOnline(sensorId)
     const failures = getConsecutiveFailures(sensorId)
     const isCritical = reading.status === "critical"
+    const hasLiveValue = Number.isFinite(reading.effectiveValue)
 
     return (
       <GlassCard
@@ -323,7 +348,9 @@ export default function AppShell() {
           </div>
           <div className="flex items-center gap-1">
             {!reading.isValid && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">FALLBACK</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">
+                {reading.invalidReason === "No realtime data" ? "NO DATA" : "FALLBACK"}
+              </span>
             )}
             {!online && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">OFFLINE</span>
@@ -341,7 +368,7 @@ export default function AppShell() {
         <div className="flex items-center gap-2 mb-2">
           {getSensorIcon(sensorId)}
           <span className="text-2xl font-bold">
-            {formatSensorValue(sensorId, reading.effectiveValue, unit)}
+            {hasLiveValue ? formatSensorValue(sensorId, reading.effectiveValue, unit) : "N/A"}
           </span>
         </div>
         <p className="text-[11px] text-white/40 mb-1">{meta.placement}</p>
@@ -424,37 +451,10 @@ export default function AppShell() {
           Environmental
         </h2>
         <div className="space-y-2">
-          {/* Rainfall */}
-          {snapshot && (
-            <GlassCard flash={flashSensor === "all"}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <CloudRain className="h-4 w-4 text-blue-400" />
-                  <span className="text-sm font-semibold">Rainfall</span>
-                </div>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                  snapshot.rainfall > 30 ? "bg-red-500/30 text-red-300" :
-                  snapshot.rainfall > 7.5 ? "bg-yellow-500/30 text-yellow-300" :
-                  "bg-blue-500/30 text-blue-300"
-                }`}>
-                  {snapshot.rainfall > 30 ? "HEAVY" : snapshot.rainfall > 7.5 ? "MODERATE" : "LIGHT"}
-                </span>
-              </div>
-              <p className="text-[11px] text-white/50 mb-2">Precipitation Rate</p>
-              <div className="flex items-center gap-2 mb-1">
-                <CloudRain className="h-4 w-4 text-blue-400" />
-                <span className="text-2xl font-bold">{snapshot.rainfall.toFixed(1)} mm</span>
-              </div>
-              <p className="text-[11px] text-white/40">Obando Station Gauge</p>
-              <div className="flex items-center gap-1.5 text-[11px] text-white/40 mt-2">
-                <Clock className="h-3 w-3" />
-                <span>Updated: {snapshot.timestamp.toLocaleTimeString()}</span>
-              </div>
-            </GlassCard>
-          )}
-
           {renderSensorCard("humidity_dht22")}
           {renderSensorCard("capacitive_soil_moisture")}
+          {renderSensorCard("temperature_bme680")}
+          {renderSensorCard("pressure_bme680")}
         </div>
       </div>
 
