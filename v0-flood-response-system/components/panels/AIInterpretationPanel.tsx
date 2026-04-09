@@ -13,6 +13,7 @@ import GlassCard from "./GlassCard";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "";
 const REFRESH_INTERVAL = 30 * 60_000; // 30 minutes
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
 interface AIResponse {
   interpretation: string;
@@ -36,7 +37,10 @@ export default function AIInterpretationPanel() {
     try {
       // Try backend first (local dev), fall back to Next.js API route (Vercel)
       let res: Response | null = null;
-      if (BACKEND_URL) {
+      const useDirectBackend =
+        typeof window !== "undefined" && LOCAL_HOSTS.has(window.location.hostname) && !!BACKEND_URL;
+
+      if (useDirectBackend) {
         try {
           res = await fetch(`${BACKEND_URL}/api/ai/interpret`, { signal: AbortSignal.timeout(5000) });
         } catch {
