@@ -45,15 +45,31 @@ interface AuthContextType {
   logout: () => Promise<void>
 }
 
-const AUTH_REQUEST_TIMEOUT_MS = 15_000
+const AUTH_REQUEST_TIMEOUT_MS = 45_000
+const AUTH_MAX_RETRIES = 1
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return await Promise.race([
     promise,
     new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
+      const id = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
+      return () => clearTimeout(id)
     }),
   ])
+}
+
+function isRetryableAuthError(message: string): boolean {
+  const text = message.toLowerCase()
+  return (
+    text.includes("timed out") ||
+    text.includes("network") ||
+    text.includes("failed to fetch") ||
+    text.includes("fetch")
+  )
+}
+
+async function pause(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -130,19 +146,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Login requires a valid Supabase email + password — no bypass
   const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    try {
-      const result = await withTimeout(
-        supabase.auth.signInWithPassword({ email: email.trim(), password }),
-        AUTH_REQUEST_TIMEOUT_MS,
-        "Login request timed out"
-      )
-      const { error } = result
+    let attempt = 0
+    while (attempt <= AUTH_MAX_RETRIES) {
+      try {
+        const result = await withTimeout(
+          supabase.auth.signInWithPassword({ email: email.trim(), password }),
+          AUTH_REQUEST_TIMEOUT_MS,
+          "Login request timed out"
+        )
+        const { error } = result
 
-      if (error) return { success: false, error: error.message }
-      return { success: true }
-    } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : "Login failed" }
+        if (error) return { success: false, error: error.message }
+        return { success: true }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Login failed"
+        if (attempt < AUTH_MAX_RETRIES && isRetryableAuthError(message)) {
+          await pause(500 * (attempt + 1))
+          attempt += 1
+          continue
+        }
+        return { success: false, error: message }
+      }
     }
+
+    return { success: false, error: "Login failed" }
   }, [])
 
   // Logout: signOut triggers SIGNED_OUT → onAuthStateChange sets user to null
@@ -151,21 +178,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const resetPassword = useCallback(async (email: string): Promise<{ success: boolean; error?: string }> => {
-    try {
-      const result = await withTimeout(
-        supabase.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined,
-        }),
-        AUTH_REQUEST_TIMEOUT_MS,
-        "Reset password request timed out"
-      )
-      const { error } = result
+    let attempt = 0
+    while (attempt <= AUTH_MAX_RETRIES) {
+      try {
+        const result = await withTimeout(
+          supabase.auth.resetPasswordForEmail(email.trim(), {
+            redirectTo: typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined,
+          }),
+          AUTH_REQUEST_TIMEOUT_MS,
+          "Reset password request timed out"
+        )
+        const { error } = result
 
-      if (error) return { success: false, error: error.message }
-      return { success: true }
-    } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : "Reset password failed" }
+        if (error) return { success: false, error: error.message }
+        return { success: true }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Reset password failed"
+        if (attempt < AUTH_MAX_RETRIES && isRetryableAuthError(message)) {
+          await pause(500 * (attempt + 1))
+          attempt += 1
+          continue
+        }
+        return { success: false, error: message }
+      }
     }
+
+    return { success: false, error: "Reset password failed" }
   }, [])
 
   if (isLoading) {

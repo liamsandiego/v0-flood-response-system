@@ -6,8 +6,6 @@ import { Droplets, AlertCircle, Eye, EyeOff } from "lucide-react"
 import { DEPLOYMENT } from "@/lib/constants"
 import GlobeMap from "@/components/globe/GlobeMap"
 
-const LOGIN_TIMEOUT_MS = 15_000
-
 interface LoginGlobeProps {
   onLogin: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
   onResetPassword?: (email: string) => Promise<{ success: boolean; error?: string }>
@@ -29,12 +27,7 @@ export default function LoginWithGlobe({ onLogin, onResetPassword }: LoginGlobeP
     setSuccessMsg("")
     setLoading(true)
     try {
-      const result = await Promise.race([
-        onLogin(username.trim(), password),
-        new Promise<{ success: boolean; error?: string }>((resolve) => {
-          setTimeout(() => resolve({ success: false, error: "Login timed out. Please try again." }), LOGIN_TIMEOUT_MS)
-        }),
-      ])
+      const result = await onLogin(username.trim(), password)
 
       if (!result.success) {
         setError(result.error || "Invalid username or password")
@@ -53,12 +46,7 @@ export default function LoginWithGlobe({ onLogin, onResetPassword }: LoginGlobeP
     setSuccessMsg("")
     setLoading(true)
     try {
-      const result = await Promise.race([
-        onResetPassword(email.trim()),
-        new Promise<{ success: boolean; error?: string }>((resolve) => {
-          setTimeout(() => resolve({ success: false, error: "Reset request timed out. Please try again." }), LOGIN_TIMEOUT_MS)
-        }),
-      ])
+      const result = await onResetPassword(email.trim())
 
       if (!result.success) {
         setError(result.error || "Failed to send reset email")
