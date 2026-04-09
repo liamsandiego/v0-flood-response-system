@@ -391,9 +391,19 @@ export default function AppShell() {
       {/* Waiting for sensor data */}
       {!snapshot && (
         <div className="py-8 flex flex-col items-center gap-3">
-          <div className="h-6 w-6 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
-          <p className="text-sm text-white/50 font-mono">Connecting to sensors...</p>
-          <p className="text-[10px] text-white/30">Waiting for WebSocket data</p>
+          {wsStatus !== "connected" ? (
+            <>
+              <div className="h-6 w-6 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
+              <p className="text-sm text-white/50 font-mono">Connecting to sensors...</p>
+              <p className="text-[10px] text-white/30">Waiting for WebSocket data</p>
+            </>
+          ) : (
+            <>
+              <div className="h-6 w-6 rounded-full border-2 border-yellow-400 border-t-transparent animate-spin" />
+              <p className="text-sm text-white/50 font-mono">No fresh sensor data</p>
+              <p className="text-[10px] text-white/30">Realtime connected. Waiting for recent device rows.</p>
+            </>
+          )}
         </div>
       )}
       {/* Network warning */}

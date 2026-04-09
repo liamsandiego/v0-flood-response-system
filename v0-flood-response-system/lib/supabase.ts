@@ -25,6 +25,16 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error("Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set");
 }
 
+const projectRef = (() => {
+  try {
+    if (!supabaseUrl) return "unknown"
+    const host = new URL(supabaseUrl).hostname
+    return host.split(".")[0] || "unknown"
+  } catch {
+    return "unknown"
+  }
+})();
+
 // Create the client - will throw clear errors if env vars are missing
 export const supabase: SupabaseClient = createClient(
   supabaseUrl || "",
@@ -46,6 +56,7 @@ export const supabasePublic: SupabaseClient = createClient(
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false,
+      storageKey: `sb-${projectRef}-public-readonly`,
     },
   }
 );
