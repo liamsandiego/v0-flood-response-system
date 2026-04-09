@@ -5,6 +5,7 @@ import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const enablePwa = process.env.NEXT_PUBLIC_ENABLE_PWA === "true"
 
 export const metadata: Metadata = {
   title: 'RapidRelay – PAGASA Obando Flood Response',
@@ -71,16 +72,17 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `
+              var ENABLE_PWA = ${enablePwa ? "true" : "false"};
               if ('serviceWorker' in navigator) {
-                if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-                  // Dev mode: unregister any existing SW to avoid stale cache issues
+                if (!ENABLE_PWA || location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+                  // Default behavior: unregister any existing SW to avoid stale deploy cache issues.
                   navigator.serviceWorker.getRegistrations().then(function(regs) {
-                    regs.forEach(function(r) { r.unregister(); console.log('[SW] Unregistered dev SW'); });
+                    regs.forEach(function(r) { r.unregister(); console.log('[SW] Unregistered'); });
                   });
-                  // Also clear caches
+                  // Also clear old cache buckets
                   caches.keys().then(function(names) {
                     names.forEach(function(name) { caches.delete(name); });
-                    if (names.length) console.log('[SW] Cleared stale caches:', names);
+                    if (names.length) console.log('[SW] Cleared caches:', names);
                   });
                 } else {
                   window.addEventListener('load', function() {

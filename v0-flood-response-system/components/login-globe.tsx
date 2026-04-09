@@ -1,25 +1,52 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import dynamic from "next/dynamic"
 import { Droplets, AlertCircle, Eye, EyeOff } from "lucide-react"
 import { DEPLOYMENT } from "@/lib/constants"
-import GlobeMap from "@/components/globe/GlobeMap"
+
+const GlobeMap = dynamic(() => import("@/components/globe/GlobeMap"), {
+  ssr: false,
+})
 
 interface LoginGlobeProps {
-  onLogin: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
+  onLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
   onResetPassword?: (email: string) => Promise<{ success: boolean; error?: string }>
 }
 
 export default function LoginWithGlobe({ onLogin, onResetPassword }: LoginGlobeProps) {
   const [view, setView] = useState<"login" | "forgot_password">("login")
-  const [username, setUsername] = useState("")
+  const [emailLogin, setEmailLogin] = useState("")
   const [password, setPassword] = useState("")
   const [email, setEmail] = useState("")
   const [error, setError] = useState("")
   const [successMsg, setSuccessMsg] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [showGlobe, setShowGlobe] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const nav = navigator as Navigator & {
+      connection?: {
+        effectiveType?: string
+        saveData?: boolean
+      }
+    }
+
+    const effectiveType = nav.connection?.effectiveType?.toLowerCase()
+    const constrained = nav.connection?.saveData || effectiveType === "2g" || effectiveType === "slow-2g"
+
+    if (constrained) {
+      setShowGlobe(false)
+      return
+    }
+
+    const timer = window.setTimeout(() => setShowGlobe(true), 300)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -27,7 +54,7 @@ export default function LoginWithGlobe({ onLogin, onResetPassword }: LoginGlobeP
     setSuccessMsg("")
     setLoading(true)
     try {
-      const result = await onLogin(username.trim(), password)
+      const result = await onLogin(emailLogin.trim(), password)
 
       if (!result.success) {
         setError(result.error || "Invalid username or password")
@@ -64,7 +91,11 @@ export default function LoginWithGlobe({ onLogin, onResetPassword }: LoginGlobeP
     <div className="h-screen w-screen overflow-hidden relative bg-slate-950">
       {/* Globe background */}
       <div className="absolute inset-0 z-0">
-        <GlobeMap />
+        {showGlobe ? (
+          <GlobeMap />
+        ) : (
+          <div className="h-full w-full bg-[radial-gradient(circle_at_20%_20%,rgba(34,211,238,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(14,116,144,0.22),transparent_40%),linear-gradient(160deg,#020617_0%,#0f172a_52%,#111827_100%)]" />
+        )}
       </div>
 
       {/* Dark overlay for readability */}
@@ -88,14 +119,14 @@ export default function LoginWithGlobe({ onLogin, onResetPassword }: LoginGlobeP
             <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-4">
               <div className="space-y-1.5">
                 <label htmlFor="login-user" className="text-[11px] font-medium text-white/60 uppercase tracking-wider">
-                  Username or Email
+                  Email
                 </label>
                 <input
                   id="login-user"
-                  type="text"
-                  placeholder="Enter username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  type="email"
+                  placeholder="Enter your email"
+                  value={emailLogin}
+                  onChange={(e) => setEmailLogin(e.target.value)}
                   required
                   className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-all"
                 />

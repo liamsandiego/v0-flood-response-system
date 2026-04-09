@@ -47,15 +47,20 @@ interface AuthContextType {
 
 const AUTH_REQUEST_TIMEOUT_MS = 45_000
 const AUTH_MAX_RETRIES = 1
+const AUTH_INIT_TIMEOUT_MS = 20_000
+const AUTH_INIT_MAX_RETRIES = 1
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
-  return await Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      const id = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
-      return () => clearTimeout(id)
-    }),
-  ])
+async function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  try {
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
+    })
+
+    return await Promise.race([Promise.resolve(promise), timeoutPromise])
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
 }
 
 function isRetryableAuthError(message: string): boolean {
@@ -107,39 +112,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Check existing session (5s timeout so we don't hang forever)
-    const timeout = setTimeout(() => {
-      console.warn("[Auth] Supabase session check timed out — showing login")
-      setIsLoading(false)
-    }, 5000)
+    let active = true
 
-    supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: { user: SupabaseUser } | null } }) => {
-      clearTimeout(timeout)
-      if (session?.user) {
-        const profile = await fetchProfile(session.user)
-        setUser(profile)
+    const initializeSession = async () => {
+      for (let attempt = 0; attempt <= AUTH_INIT_MAX_RETRIES; attempt += 1) {
+        try {
+          const { data: { session } } = await withTimeout(
+            supabase.auth.getSession(),
+            AUTH_INIT_TIMEOUT_MS,
+            "Initial session check timed out"
+          )
+
+          if (!active) return
+
+          if (session?.user) {
+            const profile = await fetchProfile(session.user)
+            if (active) setUser(profile)
+          }
+
+          if (active) setIsLoading(false)
+          return
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Session check failed"
+          const shouldRetry = attempt < AUTH_INIT_MAX_RETRIES && isRetryableAuthError(message)
+
+          if (shouldRetry) {
+            await pause(500 * (attempt + 1))
+            continue
+          }
+
+          console.warn("[Auth] Session check failed — showing login:", message)
+          if (active) setIsLoading(false)
+          return
+        }
       }
-      setIsLoading(false)
-    }).catch(() => {
-      clearTimeout(timeout)
-      console.error("[Auth] Failed to check session — showing login")
-      setIsLoading(false)
-    })
+    }
+
+    void initializeSession()
 
     // Listen for auth state changes — handles sign-in and sign-out automatically
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event: string, session: { user: SupabaseUser } | null) => {
-        if (event === "SIGNED_IN" && session?.user) {
-          const profile = await fetchProfile(session.user)
-          setUser(profile)
-        } else if (event === "SIGNED_OUT") {
-          setUser(null)
+        try {
+          if (event === "SIGNED_IN" && session?.user) {
+            const profile = await fetchProfile(session.user)
+            if (active) setUser(profile)
+          } else if (event === "SIGNED_OUT") {
+            if (active) setUser(null)
+          }
+        } catch (err) {
+          console.warn("[Auth] onAuthStateChange handler failed:", err)
         }
       }
     )
 
     return () => {
-      clearTimeout(timeout)
+      active = false
       subscription.unsubscribe()
     }
   }, [])
