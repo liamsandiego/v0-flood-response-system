@@ -21,6 +21,7 @@ const OBANDO_LNG = 120.9358;
 
 // Water level calculation constant
 const DIKE_HEIGHT_M = 4.038; // 13'3" = 4.038 meters
+const SENSOR_FRESHNESS_MS = 5 * 60 * 1000; // 5 minutes
 
 // Raw row from Supabase obando_environmental_data table
 interface SupabaseRawReading {
@@ -41,12 +42,19 @@ function toTimestamp(row: SupabaseRawReading): string {
   return new Date().toISOString();
 }
 
+function isFreshTimestamp(timestamp: string): boolean {
+  const parsed = new Date(timestamp).getTime();
+  if (!Number.isFinite(parsed)) return false;
+  return Date.now() - parsed <= SENSOR_FRESHNESS_MS;
+}
+
 function toWaterLevel(distance: number | null): number | null {
   if (typeof distance !== "number" || distance < 0) return null;
   return Math.max(0, DIKE_HEIGHT_M - distance);
 }
 
 function toFeature(row: SupabaseRawReading) {
+  const timestamp = toTimestamp(row);
   return {
     type: "Feature" as const,
     geometry: {
@@ -66,7 +74,7 @@ function toFeature(row: SupabaseRawReading) {
       soil_moisture: row["Soil Moisture"] ?? null,
       pressure: row["Pressure"] ?? null,
       is_valid: true,
-      timestamp: toTimestamp(row),
+      timestamp,
       flood_mode: false,
     },
   };
@@ -109,7 +117,10 @@ export function useSupabaseRealtime() {
           .maybeSingle();
 
         if (!envErr && latestEnv) {
-          upsertFeature(toFeature(latestEnv as SupabaseRawReading), updateSensors);
+          const feature = toFeature(latestEnv as SupabaseRawReading);
+          if (isFreshTimestamp(feature.properties.timestamp)) {
+            upsertFeature(feature, updateSensors);
+          }
         }
 
         const { data: latestPred, error: predErr } = await supabasePublic
@@ -142,7 +153,9 @@ export function useSupabaseRealtime() {
         { event: "*", schema: "public", table: "obando_environmental_data" },
         (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
           const row = payload.new as SupabaseRawReading;
-          upsertFeature(toFeature(row), updateSensors);
+          const feature = toFeature(row);
+          if (!isFreshTimestamp(feature.properties.timestamp)) return;
+          upsertFeature(feature, updateSensors);
         }
       )
       .on(

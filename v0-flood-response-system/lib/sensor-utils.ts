@@ -22,6 +22,15 @@ const THRESHOLDS = {
   rainfall: { warning: 7.5, critical: 30 },
 } as const
 
+const SENSOR_STATUS_FRESHNESS_MS = 5 * 60 * 1000
+
+function isFreshFeatureTimestamp(timestamp: string | null | undefined): boolean {
+  if (!timestamp) return false
+  const parsed = new Date(timestamp).getTime()
+  if (!Number.isFinite(parsed)) return false
+  return Date.now() - parsed <= SENSOR_STATUS_FRESHNESS_MS
+}
+
 /** Map backend alert levels to UI alert levels */
 export function mapAlertLevel(
   level: "CLEAR" | "WATCH" | "WARNING" | "DANGER" | string
@@ -104,6 +113,7 @@ export function buildSnapshotFromStore(
   for (const f of features) {
     const p = f.properties
     if (!p.is_valid) continue
+    if (!isFreshFeatureTimestamp(p.timestamp)) continue
     if (typeof p.water_level === "number") {
       totalWater += p.water_level
       waterCount++
