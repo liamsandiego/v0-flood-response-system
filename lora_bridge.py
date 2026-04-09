@@ -425,7 +425,9 @@ def _build_obando_row(payload: dict[str, Any], sensor_id_hint: str | None = None
     if soil_moisture is None or temperature is None or humidity is None or pressure is None:
         return None
 
-    final_distance = _to_float(payload.get("Final Distance", payload.get("final_distance")))
+    final_distance = _to_float(
+        payload.get("Final Distance", payload.get("final_distance", payload.get("distance_m")))
+    )
     if final_distance is None:
         raw_mm = _to_float(payload.get("raw_mm"))
         if raw_mm is not None:

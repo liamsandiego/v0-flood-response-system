@@ -57,10 +57,10 @@ const GlobeMap = dynamic(() => import("@/components/globe/GlobeMap"), { ssr: fal
 function makeFlatlineReading(sensorId: SensorReading["sensorId"], timestamp: Date): SensorReading {
   return {
     sensorId,
-    value: 0,
+    value: Number.NaN,
     isValid: false,
     invalidReason: "No realtime data",
-    effectiveValue: 0,
+    effectiveValue: Number.NaN,
     timestamp,
     status: "normal",
   }
@@ -375,11 +375,11 @@ export default function AppShell() {
             {getSensorIcon(sensorId)}
             <span className="text-sm font-semibold">{meta.shortLabel}</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center justify-end gap-1 flex-wrap max-w-[58%]">
             {noLiveData && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">FLATLINE</span>
             )}
-            {!reading.isValid && (
+            {!noLiveData && !reading.isValid && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">
                 {reading.invalidReason === "No realtime data" ? "NO DATA" : "FALLBACK"}
               </span>
@@ -422,11 +422,16 @@ export default function AppShell() {
     <>
       {/* Waiting for sensor data */}
       {!snapshot && (
-        <div className="py-8 flex flex-col items-center gap-3">
-          <p className="text-sm text-white/50 font-mono">No fresh sensor rows from Supabase</p>
-          <p className="text-[10px] text-white/30">
-            {wsStatus === "connected" ? "Realtime connected." : "Realtime is reconnecting."} Showing flatline baseline until new rows arrive.
-          </p>
+        <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className={`h-2 w-2 rounded-full ${wsStatus === "connected" ? "bg-emerald-400" : "bg-yellow-400 animate-pulse"}`} />
+              <span className="text-[11px] text-white/70 font-mono truncate">
+                {wsStatus === "connected" ? "SUPABASE LIVE • NO FRESH ROW" : "SUPABASE RECONNECTING"}
+              </span>
+            </div>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">FLATLINE</span>
+          </div>
         </div>
       )}
       {/* Network warning */}
