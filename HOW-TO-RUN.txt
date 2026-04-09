@@ -107,7 +107,11 @@
   1. Set port in start.bat (replace --simulate with --port /dev/ttyUSB0)
   2. Or pass to lora_bridge.py directly:
        python lora_bridge.py --port /dev/ttyUSB0
-  3. LoRa payload format: "SENSOR_ID:RAW_MM" (e.g. "OBD-01:1423")
+  3. LoRa payload formats:
+       Legacy: "SENSOR_ID:RAW_MM" (e.g. "OBD-01:1423")
+       New decoded JSON (preferred):
+       {"sensor_id":"OBD-01","soil_moisture":73.6,"temperature":33.4,"humidity":52.6,"pressure":1010,"final_distance":0.27}
+     New decoded payloads are written directly to Supabase table obando_environmental_data.
   4. Kiosk: uncomment Chrome line at bottom of start.bat
 
 

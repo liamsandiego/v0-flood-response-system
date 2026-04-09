@@ -60,6 +60,12 @@ except ImportError:
 INGEST_URL   = "http://localhost:8001/api/readings/ingest"   # FastAPI SSE notify
 OLLAMA_URL   = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
+SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
+SUPABASE_KEY = (
+    os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    or os.environ.get("SUPABASE_SERVICE_KEY", "")
+    or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+)
 
 HARD_MAX_MM   = 10_000   # >10m → drop
 DELTA_FLAG_MM = 500      # >0.5m in 5min → flag
@@ -75,6 +81,26 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("lora_bridge")
+
+_sb_client = None
+
+
+def _get_supabase_client():
+    """Create a cached Supabase client for direct obando_environmental_data writes."""
+    global _sb_client
+    if _sb_client is not None:
+        return _sb_client
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("Supabase credentials missing for obando_environmental_data writes")
+
+    try:
+        from supabase import create_client
+    except ImportError as e:
+        raise RuntimeError("supabase-py not installed: pip install supabase") from e
+
+    _sb_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    return _sb_client
 
 
 # ---------------------------------------------------------------------------
@@ -372,11 +398,93 @@ def process_reading(
     return record
 
 
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+    return None
+
+
+def _build_obando_row(payload: dict[str, Any], sensor_id_hint: str | None = None) -> dict[str, Any] | None:
+    """Normalize decoded payload into obando_environmental_data column names."""
+    soil_moisture = _to_float(payload.get("Soil Moisture", payload.get("soil_moisture")))
+    temperature = _to_float(payload.get("Temperature", payload.get("temperature")))
+    humidity = _to_float(payload.get("Humidity", payload.get("humidity")))
+    pressure = _to_float(payload.get("Pressure", payload.get("pressure")))
+
+    # Strict no-fake policy: required columns must exist in payload.
+    if soil_moisture is None or temperature is None or humidity is None or pressure is None:
+        return None
+
+    final_distance = _to_float(payload.get("Final Distance", payload.get("final_distance")))
+    if final_distance is None:
+        raw_mm = _to_float(payload.get("raw_mm"))
+        if raw_mm is not None:
+            final_distance = raw_mm / 1000.0
+
+    date_val = payload.get("Date", payload.get("date"))
+    time_val = payload.get("Time", payload.get("time"))
+    now = datetime.now(timezone.utc)
+
+    date_text = str(date_val).strip() if date_val is not None else now.date().isoformat()
+    time_text = str(time_val).strip() if time_val is not None else now.time().replace(microsecond=0).isoformat()
+    device = payload.get("Device", payload.get("device", sensor_id_hint or "OBD-01"))
+
+    return {
+        "Soil Moisture": soil_moisture,
+        "Temperature": temperature,
+        "Humidity": humidity,
+        "Pressure": pressure,
+        "Final Distance": final_distance,
+        "Date": date_text,
+        "Time": time_text,
+        "Device": str(device),
+    }
+
+
+def process_environment_reading(payload: dict[str, Any], sensor_id_hint: str | None, source: str = "mqtt") -> bool:
+    """Write a decoded multi-sensor payload directly to obando_environmental_data."""
+    row = _build_obando_row(payload, sensor_id_hint=sensor_id_hint)
+    if row is None:
+        logger.warning("[%s] Missing required environmental fields; dropped payload", sensor_id_hint or "unknown")
+        return False
+
+    try:
+        sb = _get_supabase_client()
+        sb.table("obando_environmental_data").insert(row).execute()
+        logger.info(
+            "[%s] obando_environmental_data <- moisture=%.2f temp=%.2f humidity=%.2f pressure=%.2f",
+            row["Device"],
+            row["Soil Moisture"],
+            row["Temperature"],
+            row["Humidity"],
+            row["Pressure"],
+        )
+        return True
+    except Exception as e:
+        logger.error("[%s] Supabase insert to obando_environmental_data failed: %s", sensor_id_hint or "unknown", e)
+        try:
+            db = _get_db()
+            db.buffer_raw_payload(sensor_id_hint or "OBD-01", {"obando_row": row}, source=source)
+        except Exception as be:
+            logger.warning("Could not buffer failed obando row: %s", be)
+        return False
+
+
 # ---------------------------------------------------------------------------
 # MQTT mode — ChirpStack via Mosquitto
 # ---------------------------------------------------------------------------
 
-def parse_chirpstack_payload(msg_payload: bytes) -> tuple[str, int] | None:
+def parse_chirpstack_payload(msg_payload: bytes) -> dict[str, Any] | None:
     """
     Parse a ChirpStack MQTT uplink message.
     Expected JSON structure (ChirpStack v4):
@@ -393,7 +501,21 @@ def parse_chirpstack_payload(msg_payload: bytes) -> tuple[str, int] | None:
         obj = data.get("object", {})
         if "raw_mm" in obj:
             sensor_id = data["deviceInfo"]["deviceName"]
-            return sensor_id, int(obj["raw_mm"])
+            return {"type": "legacy_raw", "sensor_id": sensor_id, "raw_mm": int(obj["raw_mm"])}
+
+        # New path: fully decoded environmental packet for obando_environmental_data.
+        has_env_fields = (
+            "Soil Moisture" in obj or "soil_moisture" in obj
+        ) and (
+            "Temperature" in obj or "temperature" in obj
+        ) and (
+            "Humidity" in obj or "humidity" in obj
+        ) and (
+            "Pressure" in obj or "pressure" in obj
+        )
+        if has_env_fields:
+            sensor_id = data.get("deviceInfo", {}).get("deviceName", "OBD-01")
+            return {"type": "environment", "sensor_id": sensor_id, "payload": obj}
 
         # Try base64 frmPayload (raw bytes): format 'SENSOR_ID:RAW_MM'
         frm = data.get("data", "")
@@ -401,7 +523,7 @@ def parse_chirpstack_payload(msg_payload: bytes) -> tuple[str, int] | None:
             decoded = base64.b64decode(frm).decode("ascii").strip()
             parts = decoded.split(":")
             if len(parts) == 2:
-                return parts[0].strip(), int(parts[1].strip())
+                return {"type": "legacy_raw", "sensor_id": parts[0].strip(), "raw_mm": int(parts[1].strip())}
 
         logger.warning("ChirpStack payload has no recognized format: %s", list(data.keys()))
         return None
@@ -431,8 +553,10 @@ def run_mqtt(broker_host: str = "localhost", broker_port: int = 1883) -> None:
     def on_message(client, userdata, msg):
         parsed = parse_chirpstack_payload(msg.payload)
         if parsed:
-            sensor_id, raw_mm = parsed
-            process_reading(sensor_id, raw_mm, source="mqtt")
+            if parsed["type"] == "environment":
+                process_environment_reading(parsed["payload"], parsed.get("sensor_id"), source="mqtt")
+            else:
+                process_reading(parsed["sensor_id"], int(parsed["raw_mm"]), source="mqtt")
         else:
             logger.debug("Unrecognized MQTT message on %s", msg.topic)
 
@@ -475,7 +599,7 @@ def auto_detect_serial_port() -> str | None:
     return None
 
 
-def parse_serial_payload(raw: bytes) -> tuple[str, int] | None:
+def parse_serial_payload(raw: bytes) -> dict[str, Any] | None:
     """
     Parse direct serial payload. Expected: 'SENSOR_ID:RAW_MM'
     Example: b'OBD-01:1234'
@@ -488,11 +612,17 @@ def parse_serial_payload(raw: bytes) -> tuple[str, int] | None:
         # Try JSON first
         if text.startswith("{"):
             data = json.loads(text)
-            return data["sensor_id"], int(data["raw_mm"])
+            if "raw_mm" in data and "sensor_id" in data:
+                return {"type": "legacy_raw", "sensor_id": data["sensor_id"], "raw_mm": int(data["raw_mm"])}
+
+            row = _build_obando_row(data, sensor_id_hint=data.get("sensor_id"))
+            if row is not None:
+                return {"type": "environment", "sensor_id": row["Device"], "payload": data}
+            return None
         # Try colon-separated
         parts = text.split(":")
         if len(parts) == 2:
-            return parts[0].strip(), int(parts[1].strip())
+            return {"type": "legacy_raw", "sensor_id": parts[0].strip(), "raw_mm": int(parts[1].strip())}
     except Exception:
         pass
     return None
@@ -517,8 +647,10 @@ def run_serial(port: str) -> None:
                     continue
                 parsed = parse_serial_payload(line)
                 if parsed:
-                    sensor_id, raw_mm = parsed
-                    process_reading(sensor_id, raw_mm, source="serial")
+                    if parsed["type"] == "environment":
+                        process_environment_reading(parsed["payload"], parsed.get("sensor_id"), source="serial")
+                    else:
+                        process_reading(parsed["sensor_id"], int(parsed["raw_mm"]), source="serial")
                 else:
                     logger.debug("Unrecognized serial: %r", line[:60])
         except Exception as e:
@@ -564,8 +696,12 @@ def drain_offline_buffer_on_start() -> None:
             for entry in buffered:
                 try:
                     payload = json.loads(entry["raw_payload"])
-                    raw_mm = payload.get("raw_mm")
-                    if raw_mm is not None:
+                    if "obando_row" in payload:
+                        process_environment_reading(payload["obando_row"], entry["sensor_id"], source=entry.get("source", "lora"))
+                    else:
+                        raw_mm = payload.get("raw_mm")
+                        if raw_mm is None:
+                            continue
                         process_reading(
                             entry["sensor_id"], int(raw_mm),
                             source=entry.get("source", "lora"),
