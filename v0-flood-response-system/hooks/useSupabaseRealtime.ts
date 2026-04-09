@@ -35,6 +35,53 @@ interface SupabaseRawReading {
   "Device": string | null;
 }
 
+function toTimestamp(row: SupabaseRawReading): string {
+  if (row["Date"] && row["Time"]) return `${row["Date"]}T${row["Time"]}`;
+  if (row["Date"]) return `${row["Date"]}T00:00:00`;
+  return new Date().toISOString();
+}
+
+function toWaterLevel(distance: number | null): number | null {
+  if (typeof distance !== "number" || distance < 0) return null;
+  return Math.max(0, DIKE_HEIGHT_M - distance);
+}
+
+function toFeature(row: SupabaseRawReading) {
+  return {
+    type: "Feature" as const,
+    geometry: {
+      type: "Point" as const,
+      coordinates: [OBANDO_LNG, OBANDO_LAT] as [number, number],
+    },
+    properties: {
+      sensor_id: row["Device"] || "obando-main",
+      name: "Obando Environmental Sensor",
+      type: "multi",
+      latitude: OBANDO_LAT,
+      longitude: OBANDO_LNG,
+      water_level: toWaterLevel(row["Final Distance"]),
+      rainfall: null,
+      humidity: row["Humidity"] ?? null,
+      temperature: row["Temperature"] ?? null,
+      soil_moisture: row["Soil Moisture"] ?? null,
+      pressure: row["Pressure"] ?? null,
+      is_valid: true,
+      timestamp: toTimestamp(row),
+      flood_mode: false,
+    },
+  };
+}
+
+function upsertFeature(feature: ReturnType<typeof toFeature>, updateSensors: (geojson: SensorGeoJSON) => void) {
+  const current = useFloodStore.getState().sensorData;
+  const existingIds = new Set(current.features.map((f) => f.properties.sensor_id));
+  const features = existingIds.has(feature.properties.sensor_id)
+    ? current.features.map((f) => (f.properties.sensor_id === feature.properties.sensor_id ? feature : f))
+    : [...current.features, feature];
+
+  updateSensors({ type: "FeatureCollection", features });
+}
+
 /**
  * Subscribes to Supabase Realtime for live environmental data updates.
  */
@@ -52,68 +99,50 @@ export function useSupabaseRealtime() {
 
     console.log("[Supabase Realtime] Connecting...");
 
+    async function hydrateLatestRows() {
+      try {
+        const { data: latestEnv, error: envErr } = await supabasePublic
+          .from("obando_environmental_data")
+          .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
+          .order("id", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!envErr && latestEnv) {
+          upsertFeature(toFeature(latestEnv as SupabaseRawReading), updateSensors);
+        }
+
+        const { data: latestPred, error: predErr } = await supabasePublic
+          .from("flood_predictions")
+          .select("timestamp, flood_probability, risk_tier")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!predErr && latestPred) {
+          updatePrediction({
+            flood_probability: Number(latestPred.flood_probability ?? 0),
+            alert_level: String(latestPred.risk_tier ?? "NORMAL").toUpperCase() as Prediction["alert_level"],
+            features_used: {},
+            method: "rule_based" as Prediction["method"],
+            timestamp: (latestPred.timestamp as string) ?? new Date().toISOString(),
+          });
+        }
+      } catch (err) {
+        console.warn("[Supabase Realtime] Initial hydration failed:", err);
+      }
+    }
+
+    hydrateLatestRows();
+
     const channel = supabasePublic
       .channel("realtime-environmental")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "obando_environmental_data" },
+        { event: "*", schema: "public", table: "obando_environmental_data" },
         (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
           const row = payload.new as SupabaseRawReading;
-
-          // Combine Date + Time into timestamp
-          let timestamp = new Date().toISOString();
-          if (row["Date"] && row["Time"]) {
-            timestamp = `${row["Date"]}T${row["Time"]}`;
-          } else if (row["Date"]) {
-            timestamp = `${row["Date"]}T00:00:00`;
-          }
-
-          // Compute water level from measured distance.
-          let waterLevel: number | null = null;
-          if (typeof row["Final Distance"] === "number" && row["Final Distance"] >= 0) {
-            waterLevel = Math.max(0, DIKE_HEIGHT_M - row["Final Distance"]);
-          }
-
-          // Build a GeoJSON feature from live obando_environmental_data.
-          const feature = {
-            type: "Feature" as const,
-            geometry: {
-              type: "Point" as const,
-              coordinates: [OBANDO_LNG, OBANDO_LAT] as [number, number],
-            },
-            properties: {
-              sensor_id: row["Device"] || "obando-main",
-              name: "Obando Environmental Sensor",
-              type: "multi",
-              latitude: OBANDO_LAT,
-              longitude: OBANDO_LNG,
-              water_level: waterLevel,
-              rainfall: null,
-              humidity: row["Humidity"] ?? null,
-              temperature: row["Temperature"] ?? null,
-              soil_moisture: row["Soil Moisture"] ?? null,
-              pressure: row["Pressure"] ?? null,
-              is_valid: true,
-              timestamp: timestamp,
-              flood_mode: false,
-            },
-          };
-
-          // Replace or add the feature
-          const current = useFloodStore.getState().sensorData;
-          const existingIds = new Set(current.features.map((f) => f.properties.sensor_id));
-
-          let features;
-          if (existingIds.has(feature.properties.sensor_id)) {
-            features = current.features.map((f) =>
-              f.properties.sensor_id === feature.properties.sensor_id ? feature : f
-            );
-          } else {
-            features = [...current.features, feature];
-          }
-
-          const geojson: SensorGeoJSON = { type: "FeatureCollection", features };
-          updateSensors(geojson);
+          upsertFeature(toFeature(row), updateSensors);
         }
       )
       .on(
@@ -134,6 +163,7 @@ export function useSupabaseRealtime() {
       .subscribe((status: string, err?: Error) => {
         if (status === "SUBSCRIBED") {
           console.log("[Supabase Realtime] Connected");
+          hydrateLatestRows();
           setWsStatus("connected");
         } else if (status === "CHANNEL_ERROR") {
           console.error("[Supabase Realtime] Channel Error:", err);
