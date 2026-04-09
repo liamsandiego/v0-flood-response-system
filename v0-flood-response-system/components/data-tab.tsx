@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import {
   Download, ChevronLeft, ChevronRight, Search, Database, FileSpreadsheet,
 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+import { supabasePublic } from "@/lib/supabase"
 
 // Raw row from Supabase (actual column names with spaces/quotes)
 interface SupabaseRawRecord {
@@ -149,7 +149,7 @@ export function DataTab() {
   const fetchingRef = useRef(false)
   const hasHydratedCacheRef = useRef(false)
   const latestIdRef = useRef<number | null>(null)
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const channelRef = useRef<ReturnType<typeof supabasePublic.channel> | null>(null)
 
   const fetchData = useCallback(async (initial = false) => {
     if (fetchingRef.current) return
@@ -164,7 +164,7 @@ export function DataTab() {
     }
 
     try {
-      let query = supabase
+      let query = supabasePublic
         .from("obando_environmental_data")
         .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
         .abortSignal(controller.signal)
@@ -234,7 +234,7 @@ export function DataTab() {
 
     // Realtime: new rows pushed live (only subscribe once)
     if (!channelRef.current) {
-      channelRef.current = supabase
+      channelRef.current = supabasePublic
         .channel("environmental-data-realtime")
         .on(
           "postgres_changes",
@@ -266,7 +266,7 @@ export function DataTab() {
       window.removeEventListener("focus", onFocus)
       document.removeEventListener("visibilitychange", onFocus)
       if (channelRef.current) {
-        supabase.removeChannel(channelRef.current)
+        supabasePublic.removeChannel(channelRef.current)
         channelRef.current = null
       }
     }

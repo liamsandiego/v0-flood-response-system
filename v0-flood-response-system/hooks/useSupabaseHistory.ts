@@ -9,7 +9,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabasePublic } from "@/lib/supabase";
 import { useFloodStore } from "@/stores/sensorStore";
 import type { SensorSnapshot, SensorReading } from "@/lib/types";
 
@@ -141,7 +141,7 @@ export function useSupabaseHistory(
 
       try {
         // Fetch using actual Supabase column names (with spaces/quotes)
-        const { data, error } = await supabase
+        const { data, error } = await supabasePublic
           .from("obando_environmental_data")
           .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
           .order("id", { ascending: false })

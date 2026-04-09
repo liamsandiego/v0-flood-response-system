@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { AlertTriangle, Droplets, Clock, ShieldAlert, TrendingUp } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+import { supabasePublic } from "@/lib/supabase"
 import type { UserRole } from "@/components/auth-provider"
 
 // Matches public.flood_predictions schema
@@ -114,7 +114,7 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const fetchingRef = useRef(false)
   const hasHydratedCacheRef = useRef(false)
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const channelRef = useRef<ReturnType<typeof supabasePublic.channel> | null>(null)
 
   const fetchPredictions = useCallback(async (initial = false) => {
     if (fetchingRef.current) return
@@ -130,7 +130,7 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
 
     try {
       const { data, error } = await withHardTimeout(
-        supabase
+        supabasePublic
           .from("flood_predictions")
           .select("id, timestamp, flood_probability, risk_tier, created_at")
           .abortSignal(controller.signal)
@@ -186,7 +186,7 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
 
     // Realtime: new predictions pushed live (only subscribe once)
     if (!channelRef.current) {
-      channelRef.current = supabase
+      channelRef.current = supabasePublic
         .channel("flood-predictions-realtime")
         .on(
           "postgres_changes",
@@ -218,7 +218,7 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
       window.removeEventListener("focus", onFocus)
       document.removeEventListener("visibilitychange", onFocus)
       if (channelRef.current) {
-        supabase.removeChannel(channelRef.current)
+        supabasePublic.removeChannel(channelRef.current)
         channelRef.current = null
       }
     }

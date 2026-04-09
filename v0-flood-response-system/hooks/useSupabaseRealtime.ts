@@ -10,7 +10,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabasePublic } from "@/lib/supabase";
 import { useFloodStore } from "@/stores/sensorStore";
 import type { SensorGeoJSON, Prediction } from "@/stores/sensorStore";
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/supabase-js";
@@ -52,7 +52,7 @@ export function useSupabaseRealtime() {
 
     console.log("[Supabase Realtime] Connecting...");
 
-    const channel = supabase
+    const channel = supabasePublic
       .channel("realtime-environmental")
       .on(
         "postgres_changes",
@@ -151,7 +151,7 @@ export function useSupabaseRealtime() {
 
     return () => {
       if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
+        supabasePublic.removeChannel(channelRef.current);
         channelRef.current = null;
         activeRef.current = false;
       }
