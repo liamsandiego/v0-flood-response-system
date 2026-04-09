@@ -22,6 +22,7 @@ export interface SensorProperties {
   humidity: number | null;
   temperature: number | null;
   soil_moisture: number | null;
+  pressure: number | null;
   is_valid: boolean;
   timestamp: string;
   flood_mode: boolean;
@@ -54,6 +55,8 @@ export interface SensorHistoryEntry {
   water_level: number;
   rainfall: number;
   humidity: number;
+  temperature: number;
+  pressure: number;
   risk: number;
 }
 
@@ -124,6 +127,8 @@ export const useFloodStore = create<FloodStore>((set, get) => ({
         water_level: feature.properties.water_level ?? 0,
         rainfall: feature.properties.rainfall ?? 0,
         humidity: feature.properties.humidity ?? 0,
+        temperature: feature.properties.temperature ?? 0,
+        pressure: feature.properties.pressure ?? 0,
         risk: 0,
       });
       if (entries.length > MAX_HISTORY) entries.shift();

@@ -178,6 +178,14 @@ export default function TelemetryPanel() {
                           : "N/A"
                       }
                     />
+                    <TelemetryRow
+                      label="PRESS"
+                      value={
+                        sensor.pressure != null
+                          ? `${sensor.pressure.toFixed(0)}hPa`
+                          : "N/A"
+                      }
+                    />
                   </div>
 
                   {/* Valid indicator */}

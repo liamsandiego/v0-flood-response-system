@@ -3,6 +3,10 @@
 //
 // Subscribes to Supabase Realtime for live environmental data.
 // Primary data source for production deployments.
+//
+// IMPORTANT: Calculates water_level from Final Distance:
+//   water_level [m] = dike_height [m] - final_distance [m]
+//   dike_height = 4.038m (Obando Multipurpose Dike, 13'3")
 // =============================================================================
 
 "use client";
@@ -16,6 +20,9 @@ import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/
 // Obando, Bulacan coordinates (sensor location)
 const OBANDO_LAT = 14.7094;
 const OBANDO_LNG = 120.9358;
+
+// Water level calculation constant
+const DIKE_HEIGHT_M = 4.038; // 13'3" = 4.038 meters
 
 // Raw row from Supabase (actual column names with spaces/quotes)
 interface SupabaseRawReading {
@@ -63,6 +70,13 @@ export function useSupabaseRealtime() {
             timestamp = `${row["Date"]}T00:00:00`;
           }
 
+          // Calculate water level from Final Distance
+          // water_level [m] = dike_height [m] - final_distance [m]
+          let water_level: number | null = null;
+          if (row["Final Distance"] != null && row["Final Distance"] >= 0) {
+            water_level = Math.max(0, DIKE_HEIGHT_M - row["Final Distance"]);
+          }
+
           // Build a GeoJSON feature from the environmental data
           const feature = {
             type: "Feature" as const,
@@ -76,11 +90,12 @@ export function useSupabaseRealtime() {
               type: "multi",
               latitude: OBANDO_LAT,
               longitude: OBANDO_LNG,
-              water_level: row["Final Distance"] ?? null,
+              water_level,
               rainfall: null,
               humidity: row["Humidity"] ?? null,
               temperature: row["Temperature"] ?? null,
               soil_moisture: row["Soil Moisture"] ?? null,
+              pressure: row["Pressure"] ?? null,
               is_valid: true,
               timestamp: timestamp,
               flood_mode: false,
@@ -119,13 +134,19 @@ export function useSupabaseRealtime() {
           updatePrediction(prediction);
         }
       )
-      .subscribe((status: string) => {
+      .subscribe((status: string, err?: Error) => {
         if (status === "SUBSCRIBED") {
           console.log("[Supabase Realtime] Connected");
           setWsStatus("connected");
         } else if (status === "CHANNEL_ERROR") {
-          console.error("[Supabase Realtime] Error");
+          console.error("[Supabase Realtime] Channel Error:", err);
+          console.error("[Supabase Realtime] This usually means:");
+          console.error("  1. Table 'obando_environmental_data' doesn't have Realtime enabled in Supabase");
+          console.error("  2. RLS policies are blocking the subscription");
+          console.error("  3. Check Supabase Dashboard → Database → Replication → Enable for this table");
           setWsStatus("error");
+        } else {
+          console.log("[Supabase Realtime] Status:", status);
         }
       });
 

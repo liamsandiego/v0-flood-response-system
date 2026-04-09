@@ -42,7 +42,8 @@ def _status(value: Optional[float], sensor_type: str) -> str:
 async def get_latest_sensor_reading(sensor_id: str) -> Optional[dict]:
     """Fetch latest reading from obando_environmental_data.
 
-    Calculates water_level from distance_m.
+    Calculates water_level from Final Distance.
+    Column names have spaces and capitalization (e.g., "Final Distance", "Soil Moisture").
     """
     sb = get_supabase()
     if not sb:
@@ -53,7 +54,7 @@ async def get_latest_sensor_reading(sensor_id: str) -> Optional[dict]:
         # If sensor_id is needed, we'd need to add that field to the table
         response = sb.table("obando_environmental_data") \
             .select("*") \
-            .order("timestamp", desc=True) \
+            .order("id", desc=True) \
             .limit(1) \
             .execute()
 
@@ -62,19 +63,19 @@ async def get_latest_sensor_reading(sensor_id: str) -> Optional[dict]:
 
         reading = response.data[0]
 
-        # Calculate water level
-        distance_m = reading.get("distance_m")
-        water_level = max(0, DIKE_HEIGHT_M - distance_m) if distance_m is not None else 0.0
+        # Calculate water level: water_level = dike_height - distance_to_water
+        final_distance = reading.get("Final Distance")
+        water_level = max(0, DIKE_HEIGHT_M - final_distance) if final_distance is not None else 0.0
 
         return {
             "sensor_id": sensor_id,
             "water_level": water_level,
-            "soil_moisture": reading.get("soil"),
-            "humidity": reading.get("humidity"),
-            "temperature": reading.get("temperature"),
-            "pressure": reading.get("pressure"),
-            "distance_m": distance_m,
-            "timestamp": reading.get("timestamp"),
+            "soil_moisture": reading.get("Soil Moisture"),
+            "humidity": reading.get("Humidity"),
+            "temperature": reading.get("Temperature"),
+            "pressure": reading.get("Pressure"),
+            "final_distance": final_distance,
+            "timestamp": reading.get("Date"),  # obando_environmental_data stores date/time separately
         }
     except Exception as e:
         print(f"[SensorService] Error fetching reading for {sensor_id}: {e}")
@@ -85,18 +86,21 @@ async def get_latest_snapshot() -> Optional[SensorSnapshot]:
     """Fetch the latest sensor snapshot aggregated from all nodes.
 
     Queries real data from obando_environmental_data table.
-    Calculates water_level from distance_m: water_level = dike_height - distance_m
+    Calculates water_level from Final Distance: water_level = dike_height - Final Distance
     Syncs calculated water_level to Supabase sensor_readings table.
+
+    Note: Column names have spaces and capitalization:
+      "Final Distance", "Soil Moisture", "Temperature", "Pressure", "Humidity"
     """
     sb = get_supabase()
     if not sb:
         return None
 
     try:
-        # Fetch latest reading from obando_environmental_data (most recent timestamp)
+        # Fetch latest reading from obando_environmental_data (most recent by id)
         response = sb.table("obando_environmental_data") \
             .select("*") \
-            .order("timestamp", desc=True) \
+            .order("id", desc=True) \
             .limit(1) \
             .execute()
 
@@ -104,21 +108,30 @@ async def get_latest_snapshot() -> Optional[SensorSnapshot]:
             return None
 
         reading = response.data[0]
-        ts = datetime.fromisoformat(reading["timestamp"].replace("Z", "+00:00"))
 
-        # Calculate water level from distance_m (ultrasonic sensor)
+        # Build timestamp from Date and Time columns
+        ts = datetime.now(timezone.utc)
+        date_str = reading.get("Date")
+        time_str = reading.get("Time")
+        if date_str and time_str:
+            try:
+                ts = datetime.fromisoformat(f"{date_str}T{time_str}").replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+
+        # Calculate water level from Final Distance (ultrasonic sensor)
         # water_level = dike_height - distance_to_water
-        distance_m = reading.get("distance_m")
-        if distance_m is not None and distance_m >= 0:
-            water_level = max(0, DIKE_HEIGHT_M - distance_m)
+        final_distance = reading.get("Final Distance")
+        if final_distance is not None and final_distance >= 0:
+            water_level = max(0, DIKE_HEIGHT_M - final_distance)
         else:
             water_level = 0.0
 
-        # Get other measurements
-        soil_moisture = reading.get("soil", 0.0)  # Column name is "soil" not soil_moisture
-        humidity = reading.get("humidity", 0.0)
-        temperature = reading.get("temperature", 0.0)
-        pressure = reading.get("pressure", 0.0)
+        # Get other measurements (with proper column names)
+        soil_moisture = reading.get("Soil Moisture") or 0.0
+        humidity = reading.get("Humidity") or 0.0
+        temperature = reading.get("Temperature") or 0.0
+        pressure = reading.get("Pressure") or 0.0
         rainfall = 0.0  # Not in obando_environmental_data, use 0
 
         # Sync to sensor_readings table (persist calculated water_level)
@@ -188,7 +201,8 @@ async def get_sensor_history(
 ) -> list[dict]:
     """Fetch historical sensor readings from obando_environmental_data.
 
-    Calculates water_level from distance_m for each record.
+    Calculates water_level from Final Distance for each record.
+    Uses proper column names: "Final Distance", "Soil Moisture", etc.
 
     Args:
         sensor_id: Ignored (obando_environmental_data is single-sensor)
@@ -200,33 +214,44 @@ async def get_sensor_history(
         return []
 
     try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
-
+        # Since obando_environmental_data only has Date/Time columns (not timestamp),
+        # we fetch a reasonable number of recent records and filter in Python
         response = sb.table("obando_environmental_data") \
             .select("*") \
-            .gte("timestamp", cutoff) \
-            .order("timestamp", desc=True) \
+            .order("id", desc=True) \
             .limit(limit) \
             .execute()
 
         if not response.data:
             return []
 
-        # Transform: calculate water_level from distance_m
+        # Transform: calculate water_level from Final Distance
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         results = []
+
         for row in response.data:
-            distance_m = row.get("distance_m")
-            water_level = max(0, DIKE_HEIGHT_M - distance_m) if distance_m is not None else 0.0
+            # Build timestamp from Date and Time
+            date_str = row.get("Date")
+            time_str = row.get("Time")
+            try:
+                ts = datetime.fromisoformat(f"{date_str}T{time_str}").replace(tzinfo=timezone.utc)
+                if ts < cutoff:
+                    continue  # Skip records outside the time window
+            except Exception:
+                continue  # Skip malformed timestamps
+
+            final_distance = row.get("Final Distance")
+            water_level = max(0, DIKE_HEIGHT_M - final_distance) if final_distance is not None else 0.0
 
             results.append({
                 "id": row.get("id"),
-                "timestamp": row.get("timestamp"),
+                "timestamp": ts.isoformat(),
                 "water_level": water_level,
-                "distance_m": distance_m,
-                "soil_moisture": row.get("soil"),
-                "humidity": row.get("humidity"),
-                "temperature": row.get("temperature"),
-                "pressure": row.get("pressure"),
+                "final_distance": final_distance,
+                "soil_moisture": row.get("Soil Moisture"),
+                "humidity": row.get("Humidity"),
+                "temperature": row.get("Temperature"),
+                "pressure": row.get("Pressure"),
             })
 
         return results
@@ -239,6 +264,7 @@ async def sync_obando_to_sensor_readings(hours: int = 24) -> int:
     """Sync calculated water levels from obando_environmental_data to sensor_readings.
 
     Backfills sensor_readings table with calculated water_level values.
+    Uses proper column names: "Final Distance", "Soil Moisture", etc.
     Deduplicates by timestamp to avoid duplicates.
 
     Args:
@@ -254,11 +280,10 @@ async def sync_obando_to_sensor_readings(hours: int = 24) -> int:
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
-        # Fetch all records from obando_environmental_data in the timeframe
+        # Fetch all records from obando_environmental_data
         response = sb.table("obando_environmental_data") \
             .select("*") \
-            .gte("timestamp", cutoff) \
-            .order("timestamp", desc=False) \
+            .order("id", desc=False) \
             .execute()
 
         if not response.data:
@@ -266,22 +291,34 @@ async def sync_obando_to_sensor_readings(hours: int = 24) -> int:
 
         # Build insert rows with calculated water_level
         rows = []
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=hours)
+
         for row in response.data:
-            distance_m = row.get("distance_m")
-            water_level = max(0, DIKE_HEIGHT_M - distance_m) if distance_m is not None else 0.0
+            # Build timestamp from Date and Time
+            date_str = row.get("Date")
+            time_str = row.get("Time")
+            try:
+                ts = datetime.fromisoformat(f"{date_str}T{time_str}").replace(tzinfo=timezone.utc)
+                if ts < cutoff_dt:
+                    continue  # Skip records outside the time window
+            except Exception:
+                continue  # Skip malformed timestamps
+
+            final_distance = row.get("Final Distance")
+            water_level = max(0, DIKE_HEIGHT_M - final_distance) if final_distance is not None else 0.0
 
             rows.append({
                 "sensor_id": "node-obando-gateway",
                 "water_level": water_level,
                 "rainfall": 0.0,
-                "humidity": row.get("humidity", 0.0),
-                "soil_moisture": row.get("soil", 0.0),
-                "temperature": row.get("temperature", 0.0),
-                "pressure": row.get("pressure", 0.0),
+                "humidity": row.get("Humidity") or 0.0,
+                "soil_moisture": row.get("Soil Moisture") or 0.0,
+                "temperature": row.get("Temperature") or 0.0,
+                "pressure": row.get("Pressure") or 0.0,
                 "latitude": 14.707225,
                 "longitude": 120.937613,
                 "is_valid": True,
-                "timestamp": row.get("timestamp"),
+                "timestamp": ts.isoformat(),
             })
 
         # Bulk insert with conflict handling
