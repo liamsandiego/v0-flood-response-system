@@ -77,6 +77,15 @@ function mergePredictions(prev: FloodPrediction[], incoming: FloodPrediction[]) 
   return sortPredictions(Array.from(map.values())).slice(0, MAX_PREDICTIONS)
 }
 
+async function withHardTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(message)), timeoutMs)
+    }),
+  ])
+}
+
 function getRiskTierColor(tier: string | null) {
   const t = (tier || "").toLowerCase()
   if (t === "high" || t === "critical") return "bg-red-500 text-white"
@@ -120,12 +129,16 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
     }
 
     try {
-      const { data, error } = await supabase
-        .from("flood_predictions")
-        .select("id, timestamp, flood_probability, risk_tier, created_at")
-        .abortSignal(controller.signal)
-        .order("created_at", { ascending: false })
-        .limit(initial ? INITIAL_FETCH_LIMIT : POLL_FETCH_LIMIT)
+      const { data, error } = await withHardTimeout(
+        supabase
+          .from("flood_predictions")
+          .select("id, timestamp, flood_probability, risk_tier, created_at")
+          .abortSignal(controller.signal)
+          .order("created_at", { ascending: false })
+          .limit(initial ? INITIAL_FETCH_LIMIT : POLL_FETCH_LIMIT),
+        FETCH_TIMEOUT_MS,
+        "Supabase request timed out"
+      )
 
       if (error) {
         console.error("[AlertHistory] Failed to fetch predictions:", error)
@@ -137,8 +150,9 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
       }
     } catch (err) {
       console.error("[AlertHistory] Error fetching predictions:", err)
-      const isAbortError = err instanceof Error && err.name === "AbortError"
-      setFetchError(isAbortError ? "Request timed out. Retrying..." : "Network error while fetching predictions")
+      const text = err instanceof Error ? err.message.toLowerCase() : ""
+      const isTimeout = text.includes("timed out") || text.includes("abort")
+      setFetchError(isTimeout ? "Request timed out. Retrying..." : "Network error while fetching predictions")
     } finally {
       clearTimeout(timeoutId)
       setLoading(false)

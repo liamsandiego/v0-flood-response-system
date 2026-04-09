@@ -115,6 +115,15 @@ function mergeRecords(prev: EnvironmentalRecord[], incoming: EnvironmentalRecord
   return sortByNewest(Array.from(map.values())).slice(0, MAX_RECORDS)
 }
 
+async function withHardTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(message)), timeoutMs)
+    }),
+  ])
+}
+
 // Derive status from distance (water level) thresholds
 function deriveStatus(r: EnvironmentalRecord): "normal" | "warning" | "critical" {
   const waterLevel = r.water_level_m ?? 0
@@ -167,7 +176,11 @@ export function DataTab() {
         query = query.limit(INITIAL_FETCH_LIMIT)
       }
 
-      const { data, error } = await query
+      const { data, error } = await withHardTimeout(
+        query,
+        FETCH_TIMEOUT_MS,
+        "Supabase request timed out"
+      )
 
       if (error) {
         console.error("[DataTab] Failed to fetch sensor data:", error)
@@ -183,8 +196,9 @@ export function DataTab() {
       }
     } catch (err) {
       console.error("[DataTab] Error fetching data:", err)
-      const isAbortError = err instanceof Error && err.name === "AbortError"
-      setFetchError(isAbortError ? "Request timed out. Retrying..." : "Network error while fetching data")
+      const text = err instanceof Error ? err.message.toLowerCase() : ""
+      const isTimeout = text.includes("timed out") || text.includes("abort")
+      setFetchError(isTimeout ? "Request timed out. Retrying..." : "Network error while fetching data")
     } finally {
       clearTimeout(timeoutId)
       setLoading(false)
