@@ -39,7 +39,6 @@ import { useAuth } from "@/components/auth-provider"
 import { useNotifications } from "@/hooks/use-notifications"
 import { useMapLayers } from "@/hooks/use-map-layers"
 import { useHimawari } from "@/hooks/use-himawari"
-import { useWebSocket } from "@/hooks/useWebSocket"
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime"
 import { useLocalSSE } from "@/hooks/useLocalSSE"
 import { useSupabaseHistory } from "@/hooks/useSupabaseHistory"
@@ -54,6 +53,18 @@ import type { UserRole } from "@/components/auth-provider"
 
 // Lazy-load the globe (needs browser APIs)
 const GlobeMap = dynamic(() => import("@/components/globe/GlobeMap"), { ssr: false })
+
+function makeFlatlineReading(sensorId: SensorReading["sensorId"], timestamp: Date): SensorReading {
+  return {
+    sensorId,
+    value: 0,
+    isValid: false,
+    invalidReason: "No realtime data",
+    effectiveValue: 0,
+    timestamp,
+    status: "normal",
+  }
+}
 
 // =============================================================================
 // Glass Panel Wrapper — Reusable glassmorphism container
@@ -139,7 +150,7 @@ export default function AppShell() {
 
   // Data source: Supabase Realtime is primary, SSE for local mode
   // WebSocket disabled - was used for legacy mock data system
-  const sseStatus = useLocalSSE()
+  const sseStatus = useLocalSSE(false)
   useSupabaseRealtime()  // Primary: subscribes to Supabase for live sensor data
   const wsStatus = useFloodStore((s) => s.wsStatus)
   const sensorData = useFloodStore((s) => s.sensorData)
@@ -292,6 +303,25 @@ export default function AppShell() {
   }
 
   const overallStatus = snapshot?.overallStatus ?? "normal"
+  const noLiveData = !snapshot
+  const displaySnapshot: SensorSnapshot = useMemo(() => {
+    if (snapshot) return snapshot
+
+    const now = new Date()
+    return {
+      waterLevel: makeFlatlineReading("ultrasonic_water_level", now),
+      soilMoisture: makeFlatlineReading("capacitive_soil_moisture", now),
+      humidity: makeFlatlineReading("humidity_dht22", now),
+      temperature: makeFlatlineReading("temperature_bme680", now),
+      pressure: makeFlatlineReading("pressure_bme680", now),
+      rainfall: 0,
+      floodExtent: 0,
+      wetnessTrend: 0,
+      risk: 0,
+      overallStatus: "normal",
+      timestamp: now,
+    }
+  }, [snapshot])
   const uptime = Math.floor((Date.now() - startTime.current) / 1000)
   const uptimeStr =
     uptime < 60 ? `${uptime}s` :
@@ -300,7 +330,6 @@ export default function AppShell() {
 
   // ── Sensor card renderer ──
   const renderSensorCard = (sensorId: string) => {
-    if (!snapshot) return null
     if (
       sensorId !== "ultrasonic_water_level" &&
       sensorId !== "capacitive_soil_moisture" &&
@@ -313,19 +342,19 @@ export default function AppShell() {
     let reading: SensorReading
     switch (sensorId) {
       case "ultrasonic_water_level":
-        reading = snapshot.waterLevel
+        reading = displaySnapshot.waterLevel
         break
       case "capacitive_soil_moisture":
-        reading = snapshot.soilMoisture
+        reading = displaySnapshot.soilMoisture
         break
       case "humidity_dht22":
-        reading = snapshot.humidity
+        reading = displaySnapshot.humidity
         break
       case "temperature_bme680":
-        reading = snapshot.temperature
+        reading = displaySnapshot.temperature
         break
       case "pressure_bme680":
-        reading = snapshot.pressure
+        reading = displaySnapshot.pressure
         break
       default:
         return null
@@ -347,6 +376,9 @@ export default function AppShell() {
             <span className="text-sm font-semibold">{meta.shortLabel}</span>
           </div>
           <div className="flex items-center gap-1">
+            {noLiveData && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">FLATLINE</span>
+            )}
             {!reading.isValid && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">
                 {reading.invalidReason === "No realtime data" ? "NO DATA" : "FALLBACK"}
@@ -391,19 +423,10 @@ export default function AppShell() {
       {/* Waiting for sensor data */}
       {!snapshot && (
         <div className="py-8 flex flex-col items-center gap-3">
-          {wsStatus !== "connected" ? (
-            <>
-              <div className="h-6 w-6 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
-              <p className="text-sm text-white/50 font-mono">Connecting to sensors...</p>
-              <p className="text-[10px] text-white/30">Waiting for WebSocket data</p>
-            </>
-          ) : (
-            <>
-              <div className="h-6 w-6 rounded-full border-2 border-yellow-400 border-t-transparent animate-spin" />
-              <p className="text-sm text-white/50 font-mono">No fresh sensor data</p>
-              <p className="text-[10px] text-white/30">Realtime connected. Waiting for recent device rows.</p>
-            </>
-          )}
+          <p className="text-sm text-white/50 font-mono">No fresh sensor rows from Supabase</p>
+          <p className="text-[10px] text-white/30">
+            {wsStatus === "connected" ? "Realtime connected." : "Realtime is reconnecting."} Showing flatline baseline until new rows arrive.
+          </p>
         </div>
       )}
       {/* Network warning */}
@@ -424,33 +447,31 @@ export default function AppShell() {
           {renderSensorCard("ultrasonic_water_level")}
 
           {/* Risk Factor card */}
-          {snapshot && (
-            <GlassCard critical={snapshot.risk > 0.8} flash={flashSensor === "all"}>
+          <GlassCard critical={displaySnapshot.risk > 0.8} flash={flashSensor === "all"}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <AlertOctagon className="h-4 w-4 text-red-400" />
                   <span className="text-sm font-semibold">Risk Factor</span>
                 </div>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                  snapshot.risk > 0.8 ? "bg-red-500/30 text-red-300" :
-                  snapshot.risk > 0.5 ? "bg-orange-500/30 text-orange-300" :
+                  displaySnapshot.risk > 0.8 ? "bg-red-500/30 text-red-300" :
+                  displaySnapshot.risk > 0.5 ? "bg-orange-500/30 text-orange-300" :
                   "bg-emerald-500/30 text-emerald-300"
                 }`}>
-                  {snapshot.risk > 0.8 ? "HIGH" : snapshot.risk > 0.5 ? "MEDIUM" : "LOW"}
+                  {displaySnapshot.risk > 0.8 ? "HIGH" : displaySnapshot.risk > 0.5 ? "MEDIUM" : "LOW"}
                 </span>
               </div>
               <p className="text-[11px] text-white/50 mb-2">Composite Risk Score</p>
               <div className="flex items-center gap-2 mb-2">
                 <AlertOctagon className="h-4 w-4 text-red-400" />
-                <span className="text-2xl font-bold">{(snapshot.risk * 100).toFixed(1)} %</span>
+                <span className="text-2xl font-bold">{(displaySnapshot.risk * 100).toFixed(1)} %</span>
               </div>
               <p className="text-[11px] text-white/40 mb-1">Algo-driven Threat Level</p>
               <div className="flex items-center gap-1.5 text-[11px] text-white/40 mt-2">
                 <Clock className="h-3 w-3" />
-                <span>Updated: {snapshot.timestamp.toLocaleTimeString()}</span>
+                <span>Updated: {displaySnapshot.timestamp.toLocaleTimeString()}</span>
               </div>
             </GlassCard>
-          )}
         </div>
       </div>
 

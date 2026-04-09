@@ -182,9 +182,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           AUTH_REQUEST_TIMEOUT_MS,
           "Login request timed out"
         )
-        const { error } = result
+        const { data, error } = result
 
         if (error) return { success: false, error: error.message }
+
+        if (data?.user) {
+          const profile = await fetchProfile(data.user)
+          setUser(profile)
+        }
+
         return { success: true }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Login failed"

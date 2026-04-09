@@ -56,7 +56,7 @@ export interface LocalSSEStatus {
   activeSensors: number;
 }
 
-export function useLocalSSE(): LocalSSEStatus {
+export function useLocalSSE(enabled = false): LocalSSEStatus {
   const updateSensors = useFloodStore((s) => s.updateSensors);
   const setWsStatus = useFloodStore((s) => s.setWsStatus);
 
@@ -173,6 +173,11 @@ export function useLocalSSE(): LocalSSEStatus {
   }
 
   useEffect(() => {
+    if (!enabled) {
+      setWsStatus("disconnected")
+      return
+    }
+
     // Skip SSE on Vercel/serverless - Supabase Realtime handles live data there
     // SSE is only for local deployments with SQLite
     if (typeof window !== "undefined" && window.location.hostname.includes("vercel.app")) {
