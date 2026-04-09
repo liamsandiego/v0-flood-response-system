@@ -3,7 +3,14 @@
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 from datetime import datetime
-import sqlite3
+import os
+import sys
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from data_layer import get_db
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -11,32 +18,20 @@ router = APIRouter(prefix="/sync", tags=["sync"])
 async def get_sync_stats():
     """Get sync statistics from SQLite"""
     try:
-        db_path = "/home/grouptba/RapidRelay/db/local.db"
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+        db = get_db()
+        conn = db.get_raw_connection()
 
-        # Readings
-        cursor.execute("SELECT COUNT(*) FROM readings_local WHERE synced=1")
-        readings_synced = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM readings_local WHERE synced=0")
-        readings_pending = cursor.fetchone()[0]
+        readings_synced = conn.execute("SELECT COUNT(*) FROM readings_local WHERE synced=1").fetchone()[0]
+        readings_pending = conn.execute("SELECT COUNT(*) FROM readings_local WHERE synced=0").fetchone()[0]
         readings_total = readings_synced + readings_pending
 
-        # Alerts
-        cursor.execute("SELECT COUNT(*) FROM alerts_local WHERE synced=1")
-        alerts_synced = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM alerts_local WHERE synced=0")
-        alerts_pending = cursor.fetchone()[0]
+        alerts_synced = conn.execute("SELECT COUNT(*) FROM alerts_local WHERE synced=1").fetchone()[0]
+        alerts_pending = conn.execute("SELECT COUNT(*) FROM alerts_local WHERE synced=0").fetchone()[0]
         alerts_total = alerts_synced + alerts_pending
 
-        # Predictions
-        cursor.execute("SELECT COUNT(*) FROM predictions_local WHERE synced=1")
-        predictions_synced = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM predictions_local WHERE synced=0")
-        predictions_pending = cursor.fetchone()[0]
+        predictions_synced = conn.execute("SELECT COUNT(*) FROM predictions_local WHERE synced=1").fetchone()[0]
+        predictions_pending = conn.execute("SELECT COUNT(*) FROM predictions_local WHERE synced=0").fetchone()[0]
         predictions_total = predictions_synced + predictions_pending
-
-        conn.close()
 
         # Calculate percentages
         readings_percent = int((readings_synced / readings_total * 100)) if readings_total > 0 else 0
@@ -57,6 +52,7 @@ async def get_sync_stats():
             "predictions_pending": predictions_pending,
             "predictions_percent": predictions_percent,
             "last_readings_sync": "~5 min ago (auto)",
+            "db_path": str(db.db_path),
         }
     except Exception as e:
         return {
@@ -74,6 +70,7 @@ async def get_sync_stats():
             "predictions_pending": 0,
             "predictions_percent": 0,
             "last_readings_sync": "error",
+            "db_path": "unknown",
         }
 
 
@@ -314,7 +311,7 @@ async def sync_dashboard():
                         <span class="stat-label">Database Path</span>
                     </div>
                     <div style="color: #666; font-size: 0.9em; word-break: break-all;">
-                        /home/grouptba/RapidRelay/db/local.db
+                        {stats['db_path']}
                     </div>
                     <div class="stat" style="margin-top: 15px;">
                         <span class="stat-label">Buffering Strategy</span>

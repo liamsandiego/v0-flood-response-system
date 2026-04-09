@@ -114,7 +114,7 @@ class FloodPredictionService:
         if not self._sensor_buffer:
             return {
                 "flood_probability": 0.0,
-                "alert_level": "CLEAR",
+                "alert_level": "NORMAL",
                 "features_used": {},
                 "method": "no_data",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -160,35 +160,35 @@ class FloodPredictionService:
     def _classify_alert(self, prob: float) -> str:
         """Classify probability to enum: NORMAL|WATCH|WARNING|EMERGENCY."""
         if prob >= ALERT_THRESHOLDS.get("DANGER", 0.75):
-            return "DANGER"
+            return "EMERGENCY"
         elif prob >= ALERT_THRESHOLDS.get("WARNING", 0.50):
             return "WARNING"
         elif prob >= ALERT_THRESHOLDS.get("WATCH", 0.25):
             return "WATCH"
-        return "CLEAR"
+        return "NORMAL"
 
     def _normalize_alert_level(self, alert: str) -> str:
         """Convert any alert format to database enum: NORMAL|WATCH|WARNING|EMERGENCY."""
         if not alert:
-            return "CLEAR"
+            return "NORMAL"
 
         alert_upper = str(alert).upper().strip()
 
         # Map old/alternative names to standard enum
         mapping = {
-            "CLEAR": "CLEAR",
-            "CLEAR": "CLEAR",
+            "CLEAR": "NORMAL",
+            "NORMAL": "NORMAL",
             "WATCH": "WATCH",
             "WARNING": "WARNING",
-            "DANGER": "DANGER",
-            "DANGER": "DANGER",
-            "GREEN": "CLEAR",
+            "DANGER": "EMERGENCY",
+            "CRITICAL": "EMERGENCY",
+            "GREEN": "NORMAL",
             "YELLOW": "WATCH",
             "ORANGE": "WARNING",
-            "RED": "DANGER",
+            "RED": "EMERGENCY",
         }
 
-        return mapping.get(alert_upper, "CLEAR")
+        return mapping.get(alert_upper, "NORMAL")
 
     def get_status(self) -> dict:
         return {

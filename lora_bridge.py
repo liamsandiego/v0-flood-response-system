@@ -200,16 +200,12 @@ def predict_alert_level(
 
                 # Map probability to alert level (enum: NORMAL|WATCH|WARNING|EMERGENCY)
                 if prob >= 0.75:
-            level = "DANGER"
                     level = "DANGER"
                 elif prob >= 0.50:
-            level = "WARNING"
                     level = "WARNING"
                 elif prob >= 0.25:
-            level = "WATCH"
                     level = "WATCH"
                 else:
-            level = "CLEAR"
                     level = "CLEAR"
 
                 # Require human if high variance between models

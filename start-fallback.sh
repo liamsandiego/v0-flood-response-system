@@ -20,11 +20,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_DIR="/tmp/rapidrelay"
 LOG_DIR="$ROOT/logs"
-VENV="$ROOT/.venv"
-WEB_DIR="$ROOT/v0-flood-response-system"
+VENV=""
+WEB_DIR="$ROOT"
+FRONTEND_ENABLED=false
 
 # Load .env if present
 [ -f "$ROOT/.env" ] && set -a && source "$ROOT/.env" && set +a
+
+# Local-first persistence default path on Raspberry Pi
+export LOCAL_DB_PATH="${LOCAL_DB_PATH:-/home/rapidrelay/db/local.db}"
 
 mkdir -p "$PID_DIR" "$LOG_DIR"
 
@@ -34,11 +38,22 @@ echo "  Starting services in FALLBACK MODE (Cloud → Local)"
 echo "========================================================"
 
 # ── Activate Python venv ──────────────────────────────────────────────────────
-if [ -d "$VENV" ]; then
+if [ -d "$ROOT/.venv" ]; then
+  VENV="$ROOT/.venv"
+elif [ -d "$ROOT/.venv311" ]; then
+  VENV="$ROOT/.venv311"
+fi
+
+if [ -n "$VENV" ] && [ -d "$VENV" ]; then
   source "$VENV/bin/activate"
-  echo "[✓] Python venv activated"
+  echo "[✓] Python venv activated ($VENV)"
 else
-  echo "[!] No .venv found at $VENV — using system Python"
+  echo "[!] No virtualenv found (.venv/.venv311) — using system Python"
+fi
+
+# Check if a Next.js frontend exists in this repo
+if [ -f "$WEB_DIR/package.json" ] && grep -q '"next"' "$WEB_DIR/package.json"; then
+  FRONTEND_ENABLED=true
 fi
 
 # ── 1. DB init ───────────────────────────────────────────────────────────────────
@@ -65,21 +80,29 @@ cd "$ROOT"
 echo "[✓] FastAPI started (PID: $BACKEND_PID) → http://localhost:8001"
 sleep 2  # Give backend time to initialize and load config
 
-# ── 4. Next.js Dashboard ─────────────────────────────────────────────────────
-echo "[→] Starting Next.js dashboard (port 3000)..."
-cd "$WEB_DIR"
-NEXT_TELEMETRY_DISABLED=1 nohup npm run dev \
-  > "$LOG_DIR/frontend.log" 2>&1 &
-FRONTEND_PID=$!
-echo $FRONTEND_PID > "$PID_DIR/frontend.pid"
-cd "$ROOT"
-echo "[✓] Dashboard started (PID: $FRONTEND_PID) → http://localhost:3000"
+# ── 4. Next.js Dashboard (optional) ─────────────────────────────────────────
+if [ "$FRONTEND_ENABLED" = true ]; then
+  echo "[→] Starting Next.js dashboard (port 3000)..."
+  cd "$WEB_DIR"
+  NEXT_TELEMETRY_DISABLED=1 nohup npm run dev \
+    > "$LOG_DIR/frontend.log" 2>&1 &
+  FRONTEND_PID=$!
+  echo $FRONTEND_PID > "$PID_DIR/frontend.pid"
+  cd "$ROOT"
+  echo "[✓] Dashboard started (PID: $FRONTEND_PID) → http://localhost:3000"
+else
+  echo "[→] Skipping frontend: no Next.js app detected in $WEB_DIR"
+fi
 
 echo ""
 echo "========================================================"
 echo "  Fallback services running:"
 echo ""
-echo "  Dashboard:     http://localhost:3000"
+if [ "$FRONTEND_ENABLED" = true ]; then
+  echo "  Dashboard:     http://localhost:3000"
+else
+  echo "  Dashboard:     (not started)"
+fi
 echo "  Backend API:   http://localhost:8001"
 echo ""
 echo "  Logs: $LOG_DIR/"
@@ -104,11 +127,15 @@ else
 fi
 
 # Check frontend
-if curl -s http://localhost:3000 >/dev/null 2>&1; then
-  echo "  [✓] Frontend running on port 3000"
+if [ "$FRONTEND_ENABLED" = true ]; then
+  if curl -s http://localhost:3000 >/dev/null 2>&1; then
+    echo "  [✓] Frontend running on port 3000"
+  else
+    echo "  [!] Frontend starting (may take 30-60s for Next.js compilation)"
+    echo "      tail -f $LOG_DIR/frontend.log"
+  fi
 else
-  echo "  [!] Frontend starting (may take 30-60s for Next.js compilation)"
-  echo "      tail -f $LOG_DIR/frontend.log"
+  echo "  [→] Frontend skipped"
 fi
 
 echo ""

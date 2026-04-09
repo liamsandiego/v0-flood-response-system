@@ -170,6 +170,26 @@ INSERT OR IGNORE INTO system_config (key, value) VALUES
     ('lora_mode',        'serial'),
     ('sync_interval_s',  '300'),
     ('db_version',       '2');
+
+CREATE TABLE IF NOT EXISTS obando_environmental_local (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    cloud_id           TEXT,
+    sensor_id          TEXT,
+    soil_moisture      REAL,
+    temperature        REAL,
+    humidity           REAL,
+    pressure           REAL,
+    final_distance     REAL,
+    record_date        TEXT,
+    record_time        TEXT,
+    device             TEXT,
+    source             TEXT    DEFAULT 'local',
+    synced             BOOLEAN DEFAULT 0,
+    created_at         DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_env_created   ON obando_environmental_local(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_env_unsynced  ON obando_environmental_local(synced) WHERE synced = 0;
+CREATE INDEX IF NOT EXISTS idx_env_cloud_id  ON obando_environmental_local(cloud_id);
 """
 
 
@@ -209,6 +229,10 @@ class DataLayer:
                     time.sleep(0.1 * (attempt + 1))
                 else:
                     raise
+
+    def get_raw_connection(self) -> sqlite3.Connection:
+        """Expose the initialized SQLite connection for read-heavy operations."""
+        return self._get()
 
     # ------------------------------------------------------------------
     # Readings
@@ -408,6 +432,88 @@ class DataLayer:
             )
             conn.commit()
 
+    def get_prediction_history(self, limit: int = 100) -> list[dict]:
+        conn = self._get()
+        rows = conn.execute(
+            "SELECT * FROM predictions_local ORDER BY predicted_at DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Environmental data (obando_environmental_data mirror)
+    # ------------------------------------------------------------------
+
+    def insert_environmental(self, row: dict[str, Any]) -> int:
+        with self._tx() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO obando_environmental_local
+                    (cloud_id, sensor_id, soil_moisture, temperature, humidity,
+                     pressure, final_distance, record_date, record_time, device,
+                     source, synced, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row.get("cloud_id"),
+                    row.get("sensor_id"),
+                    row.get("soil_moisture"),
+                    row.get("temperature"),
+                    row.get("humidity"),
+                    row.get("pressure"),
+                    row.get("final_distance"),
+                    row.get("record_date"),
+                    row.get("record_time"),
+                    row.get("device"),
+                    row.get("source", "local"),
+                    1 if row.get("synced") else 0,
+                    row.get("created_at"),
+                ),
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def get_unsynced_environmental(self, limit: int = 100) -> list[dict]:
+        conn = self._get()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM obando_environmental_local WHERE synced=0 ORDER BY id ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        except sqlite3.OperationalError:
+            return []
+
+    def mark_environmental_synced(self, record_id: int, cloud_id: str | None = None) -> None:
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE obando_environmental_local SET synced=1, cloud_id=COALESCE(?, cloud_id) WHERE id=?",
+                (cloud_id, record_id),
+            )
+            conn.commit()
+
+    def get_environmental_history(self, limit: int = 100) -> list[dict]:
+        conn = self._get()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM obando_environmental_local ORDER BY created_at DESC, id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        except sqlite3.OperationalError:
+            return []
+
+    def environmental_exists_by_cloud_id(self, cloud_id: str) -> bool:
+        conn = self._get()
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM obando_environmental_local WHERE cloud_id=? LIMIT 1",
+                (cloud_id,),
+            ).fetchone()
+            return bool(row)
+        except sqlite3.OperationalError:
+            return False
+
     # ------------------------------------------------------------------
     # Offline buffer
     # ------------------------------------------------------------------
@@ -514,6 +620,12 @@ class DataLayer:
         unsynced_preds = conn.execute(
             "SELECT COUNT(*) FROM predictions_local WHERE synced=0"
         ).fetchone()[0]
+        try:
+            unsynced_env = conn.execute(
+                "SELECT COUNT(*) FROM obando_environmental_local WHERE synced=0"
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            unsynced_env = 0
         queue_size = conn.execute("SELECT COUNT(*) FROM sync_queue").fetchone()[0]
         last_sync = conn.execute(
             "SELECT created_at, status FROM sync_log ORDER BY id DESC LIMIT 1"
@@ -522,6 +634,7 @@ class DataLayer:
             "unsynced_readings": unsynced_readings,
             "unsynced_alerts": unsynced_alerts,
             "unsynced_predictions": unsynced_preds,
+            "unsynced_environmental": unsynced_env,
             "retry_queue_size": queue_size,
             "last_sync_at": last_sync["created_at"] if last_sync else None,
             "last_sync_status": last_sync["status"] if last_sync else None,
@@ -575,11 +688,16 @@ class DataLayer:
                 "DELETE FROM predictions_local WHERE synced=1 AND predicted_at < datetime('now', ?)",
                 (f"-{log_days} days",)
             )
+            e = conn.execute(
+                "DELETE FROM obando_environmental_local WHERE synced=1 AND created_at < datetime('now', ?)",
+                (f"-{readings_days} days",)
+            )
             conn.commit()
             return {
                 "readings_pruned": r.rowcount,
                 "sync_logs_pruned": s.rowcount,
                 "predictions_pruned": p.rowcount,
+                "environmental_pruned": e.rowcount,
             }
 
     def close(self) -> None:

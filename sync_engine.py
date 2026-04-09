@@ -111,6 +111,18 @@ def _get_supabase_client():
         raise RuntimeError("supabase-py not installed: pip install supabase")
 
 
+def _cloud_columns(sb, table_name: str) -> set[str]:
+    """Best-effort discovery of table columns from one row."""
+    try:
+        response = sb.table(table_name).select("*").limit(1).execute()
+        data = response.data or []
+        if data:
+            return set(data[0].keys())
+    except Exception:
+        pass
+    return set()
+
+
 # ---------------------------------------------------------------------------
 # Sync UP — readings_local → Supabase readings_mirror
 # ---------------------------------------------------------------------------
@@ -167,11 +179,25 @@ def map_alert_level_to_supabase(local_level: str) -> str:
     """Map local alert levels (CLEAR/WATCH/WARNING/DANGER) to Supabase (normal/warning/critical)."""
     mapping = {
         "CLEAR":    "normal",
+        "NORMAL":   "normal",
         "WATCH":    "warning",
         "WARNING":  "warning",
         "DANGER":   "critical",
+        "EMERGENCY": "critical",
     }
     return mapping.get(local_level.upper(), "normal")
+
+
+def map_alert_level_to_local(local_level: str) -> str:
+    """Normalize local levels for strict local enum compatibility."""
+    value = (local_level or "NORMAL").upper()
+    if value in {"DANGER", "CRITICAL"}:
+        return "EMERGENCY"
+    if value == "CLEAR":
+        return "NORMAL"
+    if value in {"NORMAL", "WATCH", "WARNING", "EMERGENCY"}:
+        return value
+    return "NORMAL"
 
 
 # ---------------------------------------------------------------------------
@@ -236,16 +262,31 @@ def sync_predictions_up(db, dry_run: bool = False) -> tuple[int, int]:
         return len(rows), 0
 
     sb = _get_supabase_client()
+    cols = _cloud_columns(sb, "flood_predictions")
     payload = []
     id_order = []
     for r in rows:
-        payload.append({
+        pred_item = {
             "flood_probability": r["flood_probability"],
-            "alert_level":       r["alert_level"],
-            "features_json":     r.get("features_json"),
-            "method":            r.get("method", "lgbm"),
-            "model_version":     r.get("model_version", "v2"),
-        })
+        }
+        local_level = map_alert_level_to_local(r.get("alert_level", "NORMAL"))
+
+        if "alert_level" in cols or not cols:
+            pred_item["alert_level"] = local_level
+        if "risk_tier" in cols:
+            pred_item["risk_tier"] = local_level.lower()
+        if "features_json" in cols:
+            pred_item["features_json"] = r.get("features_json")
+        if "method" in cols:
+            pred_item["method"] = r.get("method", "xgboost")
+        if "model_version" in cols:
+            pred_item["model_version"] = r.get("model_version", "v1")
+        if "timestamp" in cols:
+            pred_item["timestamp"] = r.get("predicted_at")
+        if "predicted_at" in cols:
+            pred_item["predicted_at"] = r.get("predicted_at")
+
+        payload.append(pred_item)
         id_order.append(r["id"])
 
     synced = errors = 0
@@ -259,6 +300,94 @@ def sync_predictions_up(db, dry_run: bool = False) -> tuple[int, int]:
         logger.error("flood_predictions batch insert failed: %s", e)
         for rid in id_order:
             db.queue_retry("predictions_local", rid, str(e))
+        errors = len(id_order)
+
+    return synced, errors
+
+
+def sync_environmental_up(db, dry_run: bool = False) -> tuple[int, int]:
+    """Sync local obando_environmental_local rows to Supabase obando_environmental_data."""
+    rows = db.get_unsynced_environmental(limit=BATCH_SIZE)
+    if not rows:
+        return 0, 0
+
+    logger.info("obando_environmental_local: %d unsynced rows to push", len(rows))
+    if dry_run:
+        for r in rows:
+            logger.info(
+                "  [DRY] environmental id=%d device=%s distance=%s",
+                r["id"],
+                r.get("device"),
+                r.get("final_distance"),
+            )
+        return len(rows), 0
+
+    sb = _get_supabase_client()
+    cols = _cloud_columns(sb, "obando_environmental_data")
+    payload = []
+    id_order = []
+    for r in rows:
+        item = {}
+        if "sensor_id" in cols:
+            item["sensor_id"] = r.get("sensor_id")
+        if "soil_moisture" in cols:
+            item["soil_moisture"] = r.get("soil_moisture")
+        if "temperature" in cols:
+            item["temperature"] = r.get("temperature")
+        if "humidity" in cols:
+            item["humidity"] = r.get("humidity")
+        if "pressure" in cols:
+            item["pressure"] = r.get("pressure")
+        if "final_distance" in cols:
+            item["final_distance"] = r.get("final_distance")
+        if "distance_m" in cols:
+            item["distance_m"] = r.get("final_distance")
+        if "device" in cols:
+            item["device"] = r.get("device")
+        if "date" in cols:
+            item["date"] = r.get("record_date")
+        if "time" in cols:
+            item["time"] = r.get("record_time")
+
+        # Handle quoted/mixed-case columns from manually created Supabase schemas.
+        if "Soil Moisture" in cols:
+            item["Soil Moisture"] = r.get("soil_moisture")
+        if "Temperature" in cols:
+            item["Temperature"] = r.get("temperature")
+        if "Humidity" in cols:
+            item["Humidity"] = r.get("humidity")
+        if "Pressure" in cols:
+            item["Pressure"] = r.get("pressure")
+        if "Final Distance" in cols:
+            item["Final Distance"] = r.get("final_distance")
+        if "Date" in cols:
+            item["Date"] = r.get("record_date")
+        if "Time" in cols:
+            item["Time"] = r.get("record_time")
+        if "Device" in cols:
+            item["Device"] = r.get("device")
+        if "timestamp" in cols:
+            item["timestamp"] = r.get("created_at")
+
+        if item:
+            payload.append(item)
+            id_order.append(r["id"])
+
+    if not payload:
+        logger.warning("obando_environmental_data schema columns could not be inferred, skipping batch")
+        return 0, len(rows)
+
+    synced = errors = 0
+    try:
+        response = sb.table("obando_environmental_data").insert(payload).execute()
+        response_rows = response.data or []
+        for i, local_id in enumerate(id_order):
+            cloud_id = str(response_rows[i].get("id", "")) if i < len(response_rows) else None
+            db.mark_environmental_synced(local_id, cloud_id)
+            synced += 1
+        logger.info("obando_environmental_local: synced %d", synced)
+    except Exception as e:
+        logger.error("obando_environmental_data batch insert failed: %s", e)
         errors = len(id_order)
 
     return synced, errors
@@ -373,6 +502,7 @@ def run_once(dry_run: bool = False, down_only: bool = False) -> dict:
         "readings": (0, 0),
         "alerts":   (0, 0),
         "preds":    (0, 0),
+        "environmental": (0, 0),
         "retried":  0,
         "config_updates": 0,
         "status":   "offline",
@@ -402,15 +532,17 @@ def run_once(dry_run: bool = False, down_only: bool = False) -> dict:
         r_syn, r_err = sync_readings_up(db, dry_run)
         a_syn, a_err = sync_alerts_up(db, dry_run)
         p_syn, p_err = sync_predictions_up(db, dry_run)
+        e_syn, e_err = sync_environmental_up(db, dry_run)
         retried = drain_retry_queue(db, dry_run)
 
         result.update({
             "readings": (r_syn, r_err),
             "alerts":   (a_syn, a_err),
             "preds":    (p_syn, p_err),
+            "environmental": (e_syn, e_err),
             "retried":  retried,
         })
-        errors_total = r_err + a_err + p_err
+        errors_total = r_err + a_err + p_err + e_err
 
     # Config sync down (cloud → local)
     config_updates = sync_config_down(db, dry_run)
@@ -423,17 +555,22 @@ def run_once(dry_run: bool = False, down_only: bool = False) -> dict:
     if not dry_run:
         db.log_sync(
             "up", "all",
-            records=result["readings"][0] + result["alerts"][0] + result["preds"][0],
+            records=(
+                result["readings"][0]
+                + result["alerts"][0]
+                + result["preds"][0]
+                + result["environmental"][0]
+            ),
             status=status,
             error_msg=f"{errors_total} errors" if errors_total else None,
             duration_ms=duration_ms,
         )
 
     logger.info(
-        "Sync done in %dms: readings=%s alerts=%s preds=%s retried=%d config=%d [%s]",
+        "Sync done in %dms: readings=%s alerts=%s preds=%s env=%s retried=%d config=%d [%s]",
         duration_ms,
         result["readings"], result["alerts"], result["preds"],
-        result["retried"], result["config_updates"], status,
+        result["environmental"], result["retried"], result["config_updates"], status,
     )
     return result
 

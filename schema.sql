@@ -89,6 +89,30 @@ CREATE INDEX IF NOT EXISTS idx_preds_predicted  ON predictions_local(predicted_a
 CREATE INDEX IF NOT EXISTS idx_preds_unsynced   ON predictions_local(synced) WHERE synced = 0;
 
 -- =============================================================================
+-- obando_environmental_local — local mirror of cloud environmental table
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS obando_environmental_local (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    cloud_id           TEXT,
+    sensor_id          TEXT,
+    soil_moisture      REAL,
+    temperature        REAL,
+    humidity           REAL,
+    pressure           REAL,
+    final_distance     REAL,
+    record_date        TEXT,
+    record_time        TEXT,
+    device             TEXT,
+    source             TEXT    DEFAULT 'local',
+    synced             BOOLEAN DEFAULT 0,
+    created_at         DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_env_created    ON obando_environmental_local(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_env_unsynced   ON obando_environmental_local(synced) WHERE synced = 0;
+CREATE INDEX IF NOT EXISTS idx_env_cloud_id   ON obando_environmental_local(cloud_id);
+
+-- =============================================================================
 -- offline_buffer — ring buffer for readings received when DB is temporarily busy
 -- Lora bridge writes here if readings_local insert fails; sync_engine drains it.
 -- =============================================================================

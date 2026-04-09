@@ -18,6 +18,130 @@ You also need API keys (see [Environment Variables](#environment-variables) belo
 
 ---
 
+## Raspberry Pi Setup (Local Persistence + Auto Sync)
+
+Use this when deploying on Raspberry Pi as an edge device that keeps collecting data even when internet is down.
+
+### What this mode does
+
+1. Sensor readings are always written to local SQLite first.
+2. If internet is available, `sync_engine.py` pushes unsynced rows to Supabase.
+3. If internet is down, data stays local and is retried later.
+
+### Raspberry Pi requirements
+
+1. Ubuntu/Debian on Raspberry Pi (64-bit recommended)
+2. Python 3.11+ and `python3-venv`
+3. Node.js 18+ (only if you will run the local frontend)
+4. Optional: Docker + Docker Compose (only for local ChirpStack stack)
+5. Optional: Mosquitto (if using MQTT input mode)
+
+Install base packages:
+
+```bash
+sudo apt update
+sudo apt install -y git curl python3 python3-venv python3-pip
+```
+
+Optional frontend runtime:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+### Pull this branch on Raspberry Pi
+
+```bash
+cd /home/rapidrelay
+git clone https://github.com/liamsandiego/v0-flood-response-system.git
+cd v0-flood-response-system
+git checkout feature/local-first-production
+git pull origin feature/local-first-production
+```
+
+### First-time setup on Raspberry Pi
+
+```bash
+cd /home/rapidrelay/v0-flood-response-system
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip setuptools wheel
+pip install -r backend/requirements.txt
+```
+
+Create `.env` at repo root (minimum keys):
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+LOCAL_DB_PATH=/home/rapidrelay/db/local.db
+SYNC_INTERVAL_S=300
+```
+
+### One-click start on Raspberry Pi
+
+Normal mode (bridge + local DB + sync + backend):
+
+```bash
+chmod +x start.sh kill.sh start-fallback.sh
+./start.sh
+```
+
+Simulated sensor mode:
+
+```bash
+./start.sh --simulate
+```
+
+Cloud-to-local fallback mode:
+
+```bash
+./start-fallback.sh
+```
+
+### Sensor connection options
+
+The sensor does not connect to a separate database directly. It feeds data into `lora_bridge.py`, which writes to local SQLite.
+
+1. MQTT mode (recommended with ChirpStack):
+  - Bridge subscribes to ChirpStack/Mosquitto topics.
+2. Serial mode (USB/UART gateway):
+  - Gateway sends payloads to Pi serial port.
+
+Run manually if needed:
+
+```bash
+source .venv/bin/activate
+python lora_bridge.py --mode mqtt
+python lora_bridge.py --mode serial --port /dev/ttyUSB0
+python lora_bridge.py --mode simulate
+```
+
+### Verify local persistence is working
+
+```bash
+source .venv/bin/activate
+python data_layer.py --init
+python sync_engine.py --once --dry-run
+tail -f logs/lora_bridge.log
+tail -f logs/sync_engine.log
+```
+
+### Update on Raspberry Pi after new push
+
+```bash
+cd /home/rapidrelay/v0-flood-response-system
+git checkout feature/local-first-production
+git pull origin feature/local-first-production
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+./kill.sh
+./start.sh
+```
+
+---
+
 ## Quick Start (Windows)
 
 ### One-click
