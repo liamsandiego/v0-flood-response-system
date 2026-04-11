@@ -172,15 +172,12 @@ export default function AppShell() {
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false)
   const [mobileLayersOpen, setMobileLayersOpen] = useState(false)
 
-  // Mobile layout detection — use screen width as primary signal.
-  // Windows PCs always report maxTouchPoints > 0 so we can't use that alone.
-  // Mobile = narrow screen (< 1024px) OR coarse pointer (finger) on a small screen.
+  // Mobile layout detection — use viewport width so UI remains consistent across devices.
   const [isTouch, setIsTouch] = useState(false)
   useEffect(() => {
     const check = () => {
       const narrow = window.innerWidth < 1024
-      const coarsePointer = window.matchMedia("(pointer: coarse)").matches
-      setIsTouch(narrow && coarsePointer)
+      setIsTouch(narrow)
     }
     check()
     window.addEventListener("resize", check)
@@ -241,7 +238,13 @@ export default function AppShell() {
       if (!snap) return // No data yet — keep showing waiting state
 
       setSnapshot(snap)
-      setHistory((prev) => [...prev.slice(-143), snap])
+      setHistory((prev) => {
+        const last = prev[prev.length - 1]
+        if (last && last.timestamp.getTime() === snap.timestamp.getTime()) {
+          return prev
+        }
+        return [...prev.slice(-143), snap]
+      })
 
       if (flashTimeout) clearTimeout(flashTimeout)
       setFlashSensor("all")
@@ -627,7 +630,7 @@ export default function AppShell() {
 
           {/* ─── Non-map tabs: full-screen scrollable content ─── */}
           {activeTab !== "map" && (
-            <div className="pointer-events-auto h-full overflow-y-auto">
+            <div className="pointer-events-auto h-full overflow-y-auto pb-24 lg:pb-0">
               <GlassPanel className="p-4 min-h-full">
                 {activeTab === "safety" && (
                   <ErrorBoundary>
@@ -721,7 +724,7 @@ export default function AppShell() {
       </div>
 
       {/* ─── MOBILE FIXED ELEMENTS (outside flex flow, above nav) ─── */}
-      {isTouch && activeTab === "map" && snapshot && (
+      {isTouch && activeTab === "map" && !mobileSheetOpen && (
         <div className="fixed left-0 right-0 z-[24] px-2" style={{ bottom: '72px' }}>
           <button
             onClick={() => setMobileSheetOpen(!mobileSheetOpen)}
@@ -732,25 +735,33 @@ export default function AppShell() {
                 <Waves className="h-5 w-5" />
                 <span className="font-semibold">
                   {unit === "metric"
-                    ? `${snapshot.waterLevel.effectiveValue.toFixed(2)}m`
-                    : `${(snapshot.waterLevel.effectiveValue * 3.28084).toFixed(2)}ft`}
+                    ? (Number.isFinite(displaySnapshot.waterLevel.effectiveValue)
+                        ? `${displaySnapshot.waterLevel.effectiveValue.toFixed(2)}m`
+                        : "--")
+                    : (Number.isFinite(displaySnapshot.waterLevel.effectiveValue)
+                        ? `${(displaySnapshot.waterLevel.effectiveValue * 3.28084).toFixed(2)}ft`
+                        : "--")}
                 </span>
               </span>
               <span className="flex items-center gap-2 text-cyan-300 shrink-0">
                 <CloudRain className="h-5 w-5" />
-                <span className="font-semibold">{snapshot.rainfall.toFixed(1)}mm</span>
+                <span className="font-semibold">{displaySnapshot.rainfall.toFixed(1)}mm</span>
               </span>
               <span className={`flex items-center gap-2 shrink-0 ${
-                snapshot.risk > 0.8 ? "text-red-400" :
-                snapshot.risk > 0.5 ? "text-orange-400" :
+                displaySnapshot.risk > 0.8 ? "text-red-400" :
+                displaySnapshot.risk > 0.5 ? "text-orange-400" :
                 "text-emerald-400"
               }`}>
                 <AlertOctagon className="h-5 w-5" />
-                <span className="font-semibold">{(snapshot.risk * 100).toFixed(0)}%</span>
+                <span className="font-semibold">{(displaySnapshot.risk * 100).toFixed(0)}%</span>
               </span>
               <span className="flex items-center gap-2 text-teal-300 shrink-0">
                 <ThermometerSun className="h-5 w-5" />
-                <span className="font-semibold">{snapshot.humidity.effectiveValue.toFixed(0)}%</span>
+                <span className="font-semibold">
+                  {Number.isFinite(displaySnapshot.humidity.effectiveValue)
+                    ? `${displaySnapshot.humidity.effectiveValue.toFixed(0)}%`
+                    : "--"}
+                </span>
               </span>
             </div>
             <ChevronUp className={`h-6 w-6 text-white/40 shrink-0 ml-2 transition-transform ${mobileSheetOpen ? "rotate-180" : ""}`} />

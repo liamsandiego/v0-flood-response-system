@@ -15,6 +15,15 @@ interface SensorGraphsProps {
 
 export function SensorGraphs({ history }: SensorGraphsProps) {
   const unit = useFloodStore((s) => s.unit)
+  const isMobile = typeof window !== "undefined" ? window.innerWidth < 768 : false
+
+  const getXAxisInterval = (length: number) => {
+    if (!isMobile) return "preserveStartEnd" as const
+    if (length <= 12) return 1
+    return Math.max(2, Math.floor(length / 8))
+  }
+
+  const showDots = !isMobile
   // Build chart data from real Supabase history (linked to sensor_readings)
   const waterLevelData = useMemo(() => {
     return history.map((snap) => ({
@@ -91,7 +100,7 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={waterLevelData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval={getXAxisInterval(waterLevelData.length)} minTickGap={24} />
                 <YAxis tick={{ fontSize: 10 }} domain={[0, "auto"]} width={40} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <ReferenceLine y={waterWarning} stroke="#f59e0b" strokeDasharray="6 3" label={{ value: "Warn", fontSize: 9, position: "insideTopLeft" }} />
@@ -102,7 +111,7 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
                   stroke="var(--color-value)"
                   name={`Water Level (${waterUnit})`}
                   strokeWidth={2}
-                  dot={{ r: 3, fill: "var(--color-value)" }}
+                  dot={showDots ? { r: 3, fill: "var(--color-value)" } : false}
                   activeDot={{ r: 5 }}
                   isAnimationActive={false}
                 />
@@ -125,7 +134,7 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={soilMoistureData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval={getXAxisInterval(soilMoistureData.length)} minTickGap={24} />
                 <YAxis tick={{ fontSize: 10 }} domain={[0, 100]} width={35} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <ReferenceLine y={soilMeta.thresholds.warning} stroke="#f59e0b" strokeDasharray="6 3" />
@@ -136,7 +145,7 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
                   stroke="var(--color-value)"
                   name="Soil Moisture (%)"
                   strokeWidth={2}
-                  dot={{ r: 3, fill: "var(--color-value)" }}
+                  dot={showDots ? { r: 3, fill: "var(--color-value)" } : false}
                   activeDot={{ r: 5 }}
                   isAnimationActive={false}
                 />
@@ -159,7 +168,7 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={humidityData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval={getXAxisInterval(humidityData.length)} minTickGap={24} />
                 <YAxis tick={{ fontSize: 10 }} domain={[0, 100]} width={35} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <ReferenceLine y={humidMeta.thresholds.warning} stroke="#f59e0b" strokeDasharray="6 3" />
@@ -170,7 +179,7 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
                   stroke="var(--color-value)"
                   name="Humidity (%)"
                   strokeWidth={2}
-                  dot={{ r: 3, fill: "var(--color-value)" }}
+                  dot={showDots ? { r: 3, fill: "var(--color-value)" } : false}
                   activeDot={{ r: 5 }}
                   isAnimationActive={false}
                 />
@@ -193,7 +202,7 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={temperatureData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval={getXAxisInterval(temperatureData.length)} minTickGap={24} />
                 <YAxis tick={{ fontSize: 10 }} domain={["dataMin - 5", "dataMax + 5"]} width={35} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <ReferenceLine y={35} stroke="#f59e0b" strokeDasharray="6 3" />
@@ -204,7 +213,7 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
                   stroke="var(--color-value)"
                   name="Temperature (°C)"
                   strokeWidth={2}
-                  dot={{ r: 3, fill: "var(--color-value)" }}
+                  dot={showDots ? { r: 3, fill: "var(--color-value)" } : false}
                   activeDot={{ r: 5 }}
                   isAnimationActive={false}
                 />
@@ -227,7 +236,7 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={pressureData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval={getXAxisInterval(pressureData.length)} minTickGap={24} />
                 <YAxis tick={{ fontSize: 10 }} domain={["dataMin - 10", "dataMax + 10"]} width={35} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <ReferenceLine y={950} stroke="#f59e0b" strokeDasharray="6 3" />
@@ -238,7 +247,7 @@ export function SensorGraphs({ history }: SensorGraphsProps) {
                   stroke="var(--color-value)"
                   name="Pressure (hPa)"
                   strokeWidth={2}
-                  dot={{ r: 3, fill: "var(--color-value)" }}
+                  dot={showDots ? { r: 3, fill: "var(--color-value)" } : false}
                   activeDot={{ r: 5 }}
                   isAnimationActive={false}
                 />
