@@ -3,27 +3,21 @@
 //
 // Subscribes to Supabase Realtime for live environmental data.
 // Primary data source for production deployments.
-//
-// IMPORTANT: Listens to live inserts from obando_environmental_data.
 // =============================================================================
 
 "use client";
 
 import { useEffect, useRef } from "react";
-import { supabasePublic } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { useFloodStore } from "@/stores/sensorStore";
-import type { SensorGeoJSON, Prediction } from "@/stores/sensorStore";
+import type { SensorGeoJSON, Prediction, GeoJSONFeature } from "@/stores/sensorStore";
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 
 // Obando, Bulacan coordinates (sensor location)
 const OBANDO_LAT = 14.7094;
 const OBANDO_LNG = 120.9358;
+const DIKE_HEIGHT_M = 4.038; // 13'3"
 
-// Water level calculation constant
-const DIKE_HEIGHT_M = 4.038; // 13'3" = 4.038 meters
-const SENSOR_FRESHNESS_MS = 5 * 60 * 1000; // 5 minutes
-
-// Raw row from Supabase obando_environmental_data table
 interface SupabaseRawReading {
   id: number;
   "Soil Moisture": number | null;
@@ -42,19 +36,12 @@ function toTimestamp(row: SupabaseRawReading): string {
   return new Date().toISOString();
 }
 
-function isFreshTimestamp(timestamp: string): boolean {
-  const parsed = new Date(timestamp).getTime();
-  if (!Number.isFinite(parsed)) return false;
-  return Date.now() - parsed <= SENSOR_FRESHNESS_MS;
-}
-
 function toWaterLevel(distance: number | null): number | null {
   if (typeof distance !== "number" || distance < 0) return null;
   return Math.max(0, DIKE_HEIGHT_M - distance);
 }
 
-function toFeature(row: SupabaseRawReading) {
-  const timestamp = toTimestamp(row);
+function toFeature(row: SupabaseRawReading): GeoJSONFeature {
   return {
     type: "Feature" as const,
     geometry: {
@@ -74,20 +61,10 @@ function toFeature(row: SupabaseRawReading) {
       soil_moisture: row["Soil Moisture"] ?? null,
       pressure: row["Pressure"] ?? null,
       is_valid: true,
-      timestamp,
+      timestamp: toTimestamp(row),
       flood_mode: false,
     },
   };
-}
-
-function upsertFeature(feature: ReturnType<typeof toFeature>, updateSensors: (geojson: SensorGeoJSON) => void) {
-  const current = useFloodStore.getState().sensorData;
-  const existingIds = new Set(current.features.map((f) => f.properties.sensor_id));
-  const features = existingIds.has(feature.properties.sensor_id)
-    ? current.features.map((f) => (f.properties.sensor_id === feature.properties.sensor_id ? feature : f))
-    : [...current.features, feature];
-
-  updateSensors({ type: "FeatureCollection", features });
 }
 
 /**
@@ -107,55 +84,30 @@ export function useSupabaseRealtime() {
 
     console.log("[Supabase Realtime] Connecting...");
 
-    async function hydrateLatestRows() {
-      try {
-        const { data: latestEnv, error: envErr } = await supabasePublic
-          .from("obando_environmental_data")
-          .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
-          .order("id", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (!envErr && latestEnv) {
-          const feature = toFeature(latestEnv as SupabaseRawReading);
-          if (isFreshTimestamp(feature.properties.timestamp)) {
-            upsertFeature(feature, updateSensors);
-          }
-        }
-
-        const { data: latestPred, error: predErr } = await supabasePublic
-          .from("flood_predictions")
-          .select("timestamp, flood_probability, risk_tier")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (!predErr && latestPred) {
-          updatePrediction({
-            flood_probability: Number(latestPred.flood_probability ?? 0),
-            alert_level: String(latestPred.risk_tier ?? "NORMAL").toUpperCase() as Prediction["alert_level"],
-            features_used: {},
-            method: "rule_based" as Prediction["method"],
-            timestamp: (latestPred.timestamp as string) ?? new Date().toISOString(),
-          });
-        }
-      } catch (err) {
-        console.warn("[Supabase Realtime] Initial hydration failed:", err);
-      }
-    }
-
-    hydrateLatestRows();
-
-    const channel = supabasePublic
+    const channel = supabase
       .channel("realtime-environmental")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "obando_environmental_data" },
+        { event: "INSERT", schema: "public", table: "obando_environmental_data" },
         (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
           const row = payload.new as SupabaseRawReading;
           const feature = toFeature(row);
-          if (!isFreshTimestamp(feature.properties.timestamp)) return;
-          upsertFeature(feature, updateSensors);
+
+          // Replace or add the feature
+          const current = useFloodStore.getState().sensorData;
+          const existingIds = new Set(current.features.map((f) => f.properties.sensor_id));
+
+          let features: GeoJSONFeature[];
+          if (existingIds.has(feature.properties.sensor_id)) {
+            features = current.features.map((f) =>
+              f.properties.sensor_id === feature.properties.sensor_id ? feature : f
+            );
+          } else {
+            features = [...current.features, feature];
+          }
+
+          const geojson: SensorGeoJSON = { type: "FeatureCollection", features };
+          updateSensors(geojson);
         }
       )
       .on(
@@ -173,20 +125,13 @@ export function useSupabaseRealtime() {
           updatePrediction(prediction);
         }
       )
-      .subscribe((status: string, err?: Error) => {
+      .subscribe((status: string) => {
         if (status === "SUBSCRIBED") {
           console.log("[Supabase Realtime] Connected");
-          hydrateLatestRows();
           setWsStatus("connected");
         } else if (status === "CHANNEL_ERROR") {
-          console.error("[Supabase Realtime] Channel Error:", err);
-          console.error("[Supabase Realtime] This usually means:");
-          console.error("  1. Table 'obando_environmental_data' doesn't have Realtime enabled in Supabase");
-          console.error("  2. RLS policies are blocking the subscription");
-          console.error("  3. Check Supabase Dashboard → Database → Replication → Enable for this table");
+          console.error("[Supabase Realtime] Error");
           setWsStatus("error");
-        } else {
-          console.log("[Supabase Realtime] Status:", status);
         }
       });
 
@@ -194,7 +139,7 @@ export function useSupabaseRealtime() {
 
     return () => {
       if (channelRef.current) {
-        supabasePublic.removeChannel(channelRef.current);
+        supabase.removeChannel(channelRef.current);
         channelRef.current = null;
         activeRef.current = false;
       }

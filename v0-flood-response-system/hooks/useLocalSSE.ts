@@ -37,6 +37,7 @@ function readingToFeature(reading: Record<string, unknown>) {
       humidity: null,
       temperature: null,
       soil_moisture: null,
+      pressure: null,
       is_valid: Boolean(reading.constraint_pass),
       timestamp: reading.created_at as string,
       flood_mode: (reading.alert_level as string) !== "NORMAL",
@@ -56,7 +57,7 @@ export interface LocalSSEStatus {
   activeSensors: number;
 }
 
-export function useLocalSSE(enabled = false): LocalSSEStatus {
+export function useLocalSSE(): LocalSSEStatus {
   const updateSensors = useFloodStore((s) => s.updateSensors);
   const setWsStatus = useFloodStore((s) => s.setWsStatus);
 
@@ -173,18 +174,6 @@ export function useLocalSSE(enabled = false): LocalSSEStatus {
   }
 
   useEffect(() => {
-    if (!enabled) {
-      setWsStatus("disconnected")
-      return
-    }
-
-    // Skip SSE on Vercel/serverless - Supabase Realtime handles live data there
-    // SSE is only for local deployments with SQLite
-    if (typeof window !== "undefined" && window.location.hostname.includes("vercel.app")) {
-      console.log("[LocalSSE] Skipping on Vercel - using Supabase Realtime instead");
-      return;
-    }
-    
     connectSSE();
     return () => {
       esRef.current?.close();

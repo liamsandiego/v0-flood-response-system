@@ -57,18 +57,16 @@ self.addEventListener("fetch", (event) => {
   // Skip chrome-extension and other non-http schemes
   if (!request.url.startsWith("http")) return
 
+  const requestUrl = new URL(request.url)
+
+  // Don't cache third-party requests (Supabase/Mapbox/etc.) in SW.
+  if (requestUrl.origin !== self.location.origin) return
+
   // Navigation requests (HTML pages)
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
-        .then((response) => {
-          // Cache successful navigation responses
-          if (response.ok) {
-            const clone = response.clone()
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
-          }
-          return response
-        })
+        .then((response) => response)
         .catch(() => {
           return caches.match(OFFLINE_URL).then(
             (cached) => cached || new Response("Offline", { status: 503 })

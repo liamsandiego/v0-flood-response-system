@@ -109,11 +109,16 @@ export function buildSnapshotFromStore(
   let pressureCount = 0
   let maxRainfall = 0
   let count = 0
+  let latestFreshTimestampMs = 0
 
   for (const f of features) {
     const p = f.properties
     if (!p.is_valid) continue
     if (!isFreshFeatureTimestamp(p.timestamp)) continue
+    const ts = new Date(p.timestamp).getTime()
+    if (Number.isFinite(ts)) {
+      latestFreshTimestampMs = Math.max(latestFreshTimestampMs, ts)
+    }
     if (typeof p.water_level === "number") {
       totalWater += p.water_level
       waterCount++
@@ -147,65 +152,65 @@ export function buildSnapshotFromStore(
   const avgPressure = pressureCount > 0 ? totalPressure / pressureCount : null
 
   // Build individual sensor readings
-  const now = new Date()
+  const sourceTimestamp = latestFreshTimestampMs > 0 ? new Date(latestFreshTimestampMs) : new Date()
 
   const waterLevel: SensorReading =
     avgWater == null
-      ? makeUnavailableReading("ultrasonic_water_level", now)
+      ? makeUnavailableReading("ultrasonic_water_level", sourceTimestamp)
       : {
           sensorId: "ultrasonic_water_level",
           value: avgWater,
           isValid: true,
           effectiveValue: avgWater,
-          timestamp: now,
+          timestamp: sourceTimestamp,
           status: classify(avgWater, THRESHOLDS.water_level),
         }
 
   const soilMoisture: SensorReading =
     avgSoil == null
-      ? makeUnavailableReading("capacitive_soil_moisture", now)
+      ? makeUnavailableReading("capacitive_soil_moisture", sourceTimestamp)
       : {
           sensorId: "capacitive_soil_moisture",
           value: avgSoil,
           isValid: true,
           effectiveValue: avgSoil,
-          timestamp: now,
+          timestamp: sourceTimestamp,
           status: classify(avgSoil, THRESHOLDS.soil_moisture),
         }
 
   const humidity: SensorReading =
     avgHumidity == null
-      ? makeUnavailableReading("humidity_dht22", now)
+      ? makeUnavailableReading("humidity_dht22", sourceTimestamp)
       : {
           sensorId: "humidity_dht22",
           value: avgHumidity,
           isValid: true,
           effectiveValue: avgHumidity,
-          timestamp: now,
+          timestamp: sourceTimestamp,
           status: classify(avgHumidity, THRESHOLDS.humidity),
         }
 
   const temperature: SensorReading =
     avgTemperature == null
-      ? makeUnavailableReading("temperature_bme680", now)
+      ? makeUnavailableReading("temperature_bme680", sourceTimestamp)
       : {
           sensorId: "temperature_bme680",
           value: avgTemperature,
           isValid: true,
           effectiveValue: avgTemperature,
-          timestamp: now,
+          timestamp: sourceTimestamp,
           status: classify(avgTemperature, THRESHOLDS.temperature),
         }
 
   const pressure: SensorReading =
     avgPressure == null
-      ? makeUnavailableReading("pressure_bme680", now)
+      ? makeUnavailableReading("pressure_bme680", sourceTimestamp)
       : {
           sensorId: "pressure_bme680",
           value: avgPressure,
           isValid: true,
           effectiveValue: avgPressure,
-          timestamp: now,
+          timestamp: sourceTimestamp,
           status: classifyInverse(avgPressure, THRESHOLDS.pressure),
         }
 
@@ -251,6 +256,6 @@ export function buildSnapshotFromStore(
     wetnessTrend,
     risk,
     overallStatus,
-    timestamp: now,
+    timestamp: sourceTimestamp,
   }
 }
