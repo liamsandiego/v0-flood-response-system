@@ -206,9 +206,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { success: false, error: "Login failed" }
   }, [])
 
-  // Logout: signOut triggers SIGNED_OUT → onAuthStateChange sets user to null
+  // Logout: call signOut, then forcibly clear local state regardless of result.
+  // We do NOT rely solely on the SIGNED_OUT event because a network failure would
+  // silently swallow the error and leave the user stuck on the dashboard.
   const logout = useCallback(async () => {
-    await supabase.auth.signOut()
+    try {
+      await supabase.auth.signOut()
+    } catch (err) {
+      console.warn("[Auth] signOut failed (network?), clearing local state anyway:", err)
+    } finally {
+      setUser(null)
+    }
   }, [])
 
   const resetPassword = useCallback(async (email: string): Promise<{ success: boolean; error?: string }> => {
