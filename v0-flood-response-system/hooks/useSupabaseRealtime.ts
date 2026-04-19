@@ -8,7 +8,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabasePublic } from "@/lib/supabase";
 import { useFloodStore } from "@/stores/sensorStore";
 import type { SensorGeoJSON, Prediction, GeoJSONFeature } from "@/stores/sensorStore";
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/supabase-js";
@@ -75,6 +75,7 @@ export function useSupabaseRealtime() {
   const activeRef = useRef(false);
   const retryRef = useRef({ count: 0, timer: 0 as unknown as number });
   const MAX_RETRIES = 6;
+  const pollIntervalRef = useRef(0 as unknown as number | null);
 
   const updateSensors = useFloodStore((s) => s.updateSensors);
   const updatePrediction = useFloodStore((s) => s.updatePrediction);
@@ -141,6 +142,11 @@ export function useSupabaseRealtime() {
             console.log("[Supabase Realtime] Connected");
             retryRef.current.count = 0;
             setWsStatus("connected");
+            // stop any fallback polling when realtime is healthy
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current as unknown as number);
+              pollIntervalRef.current = null;
+            }
           } else if (status === "CHANNEL_ERROR" || status === "CLOSED") {
             const attempts = retryRef.current.count || 0;
             // Only log error aggressively after a few attempts to avoid console spam
@@ -153,8 +159,36 @@ export function useSupabaseRealtime() {
             setWsStatus("error");
 
             if (attempts >= MAX_RETRIES) {
-              console.error("[Supabase Realtime] Max reconnect attempts reached; giving up until manual reload.");
-              return;
+              console.error("[Supabase Realtime] Max reconnect attempts reached; starting fallback polling and continuing reconnect attempts in background.");
+              // Start fallback polling to keep the UI live even when realtime is unstable
+              if (!pollIntervalRef.current) {
+                const poll = async () => {
+                  try {
+                    const { data, error } = await supabasePublic
+                      .from("obando_environmental_data")
+                      .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
+                      .order('id', { ascending: false })
+                      .limit(50);
+                    if (error) {
+                      console.warn('[Supabase Poll] error', error.message);
+                      return;
+                    }
+                    if (!data || data.length === 0) return;
+                    // reuse existing normalization and snapshot logic by batching into features
+                    const rows = data as any[];
+                    const features = rows.map((row) => toFeature(row as any));
+                    const geojson = { type: 'FeatureCollection', features } as any;
+                    updateSensors(geojson);
+                    setWsStatus('polling');
+                  } catch (e) {
+                    console.warn('[Supabase Poll] failed', e);
+                  }
+                };
+                // initial immediate poll
+                poll();
+                pollIntervalRef.current = window.setInterval(poll, 5000) as unknown as number;
+              }
+              // continue reconnect attempts but do not block the UI
             }
 
             // attempt reconnect with exponential backoff
