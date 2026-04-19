@@ -9,6 +9,7 @@
 
 import { useEffect, useRef } from "react";
 import { supabase, supabasePublic } from "@/lib/supabase";
+import { logTelemetry } from "@/lib/realtimeTelemetry";
 import { useFloodStore } from "@/stores/sensorStore";
 import type { SensorGeoJSON, Prediction, GeoJSONFeature } from "@/stores/sensorStore";
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/supabase-js";
@@ -86,6 +87,7 @@ export function useSupabaseRealtime() {
     activeRef.current = true;
 
     console.log("[Supabase Realtime] Connecting...");
+    logTelemetry('realtime.connect', 'attempting connection')
 
     // Guard: ensure environment variables are present (avoid unreliable runtime client introspection)
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
@@ -103,6 +105,7 @@ export function useSupabaseRealtime() {
         { event: "INSERT", schema: "public", table: "obando_environmental_data" },
         (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
           const row = payload.new as SupabaseRawReading;
+          try { logTelemetry('realtime.insert.received', undefined, { id: row.id, device: row.Device }); } catch {}
           const feature = toFeature(row);
 
           // Replace or add the feature
@@ -157,9 +160,11 @@ export function useSupabaseRealtime() {
             }
 
             setWsStatus("error");
+            logTelemetry('realtime.channel_status', String(status), { attempts })
 
             if (attempts >= MAX_RETRIES) {
               console.error("[Supabase Realtime] Max reconnect attempts reached; starting fallback polling and continuing reconnect attempts in background.");
+              logTelemetry('realtime.max_retries', 'starting fallback polling', { attempts })
               // Start fallback polling to keep the UI live even when realtime is unstable
               if (!pollIntervalRef.current) {
                 const poll = async () => {
@@ -171,6 +176,7 @@ export function useSupabaseRealtime() {
                       .limit(50);
                     if (error) {
                       console.warn('[Supabase Poll] error', error.message);
+                      logTelemetry('realtime.poll.error', error.message)
                       return;
                     }
                     if (!data || data.length === 0) return;
@@ -180,8 +186,10 @@ export function useSupabaseRealtime() {
                     const geojson = { type: 'FeatureCollection', features } as any;
                     updateSensors(geojson);
                     setWsStatus('polling');
+                    logTelemetry('realtime.poll.success', undefined, { rows: (data && (data as any[]).length) || 0 })
                   } catch (e) {
                     console.warn('[Supabase Poll] failed', e);
+                    logTelemetry('realtime.poll.failed', String(e))
                   }
                 };
                 // initial immediate poll
