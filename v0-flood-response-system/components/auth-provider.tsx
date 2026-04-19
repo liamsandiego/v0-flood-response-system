@@ -53,6 +53,7 @@ interface AuthContextType {
 const AUTH_LOGIN_TIMEOUT_MS   = 10_000
 const AUTH_INIT_TIMEOUT_MS    = 8_000
 const AUTH_RESET_TIMEOUT_MS   = 10_000
+const AUTH_LOGOUT_TIMEOUT_MS  = 4_000
 
 async function withTimeout<T>(
   promise: PromiseLike<T>,
@@ -182,14 +183,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // ── logout ─────────────────────────────────────────────────────────────────
-  // Calls signOut, then unconditionally clears local state.
-  // We do NOT rely solely on the SIGNED_OUT event because a network failure
-  // would leave the user stuck on the dashboard with no way out.
+  // Always clear local auth quickly so the UI is responsive even when network
+  // connectivity is poor. Using scope:"local" avoids waiting on remote token
+  // revocation during normal user logout.
   const logout = useCallback(async () => {
     try {
-      await supabaseAuth.auth.signOut()
+      await withTimeout(
+        supabaseAuth.auth.signOut({ scope: "local" }),
+        AUTH_LOGOUT_TIMEOUT_MS,
+        "Logout timed out"
+      )
     } catch (err) {
-      console.warn("[Auth] signOut failed (network?), clearing local state anyway:", err)
+      console.warn("[Auth] signOut failed, clearing local state anyway:", err)
     } finally {
       setUser(null)
     }

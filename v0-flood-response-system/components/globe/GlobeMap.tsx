@@ -153,16 +153,18 @@ export default function GlobeMap({
   isTouch = false,
 }: GlobeMapProps) {
   const mapRef = useRef<MapRef>(null);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
+  const lastSizeRef = useRef({ width: 0, height: 0 });
   const sensorData = useFloodStore((s) => s.sensorData);
   const criticalMode = useFloodStore((s) => s.criticalMode);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [styleReady, setStyleReady] = useState(false);
-  const [mapStyleLocal, setMapStyleLocal] = useState("dark");
 
   // Edge browser detection — reduce GPU features to prevent glitches
   const isEdge = typeof navigator !== "undefined" && /Edg\//.test(navigator.userAgent);
 
-  const mapStyle = layerConfig ? layerConfig.baseMap : mapStyleLocal;
+  const mapStyle = layerConfig?.baseMap ?? "dark";
 
   const showHimawari = layerConfig?.himawari.enabled ?? false;
 
@@ -229,6 +231,48 @@ export default function GlobeMap({
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [mapLoaded]);
+
+  // ── Stable resize handling (avoids rapid transform recalculation loops) ──
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+
+      const width = Math.round(entry.contentRect.width);
+      const height = Math.round(entry.contentRect.height);
+      if (width === lastSizeRef.current.width && height === lastSizeRef.current.height) {
+        return;
+      }
+      lastSizeRef.current = { width, height };
+
+      if (resizeRafRef.current != null) {
+        cancelAnimationFrame(resizeRafRef.current);
+      }
+
+      resizeRafRef.current = requestAnimationFrame(() => {
+        resizeRafRef.current = null;
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        try {
+          map.resize();
+        } catch {
+          // Map may be in teardown during strict-mode remount.
+        }
+      });
+    });
+
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+      if (resizeRafRef.current != null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+    };
+  }, []);
 
   const onLoad = useCallback(() => {
     const map = mapRef.current?.getMap();
@@ -495,6 +539,7 @@ export default function GlobeMap({
 
   return (
     <>
+      <div ref={mapContainerRef} className="absolute inset-0" style={{ width: "100%", height: "100%" }}>
       <Map
         ref={mapRef}
         mapboxAccessToken={MAPBOX_TOKEN}
@@ -503,6 +548,8 @@ export default function GlobeMap({
         mapStyle={(MAP_STYLES[mapStyle] ?? MAP_STYLES.dark).url}
         projection={{ name: isTouch ? "mercator" : "globe" }}
         maxPitch={isTouch ? 60 : 85}
+        reuseMaps
+        trackResize={false}
         onLoad={onLoad}
         onClick={onClick}
         {...(!isTouch && !isEdge && { preserveDrawingBuffer: true })}
@@ -641,6 +688,7 @@ export default function GlobeMap({
           </Source>
         )}
       </Map>
+      </div>
 
       {/* ── Crosshair overlay (CSS, always centered) ── */}
       {layerConfig?.overlays.crosshair && (
@@ -653,30 +701,6 @@ export default function GlobeMap({
         </div>
       )}
 
-      {/* ─── Standalone controls (login page only) ─── */}
-      {!layerConfig && (
-        <div className="absolute top-14 right-2 z-10 pointer-events-auto flex flex-col gap-2">
-          <div className="backdrop-blur-xl bg-slate-900/70 border border-white/10 rounded-lg p-2 space-y-1.5">
-            <span className="text-[9px] text-white/40 uppercase tracking-wider font-semibold block">Base Map</span>
-            <div className="grid grid-cols-2 gap-1">
-              {Object.entries(MAP_STYLES).map(([key, style]) => (
-                <button
-                  key={key}
-                  onClick={() => setMapStyleLocal(key)}
-                  className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
-                    mapStyle === key
-                      ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
-                      : "text-white/50 hover:text-white/80 hover:bg-white/5 border border-transparent"
-                  }`}
-                >
-                  {style.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-        </div>
-      )}
     </>
   );
 }

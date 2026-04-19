@@ -85,6 +85,20 @@ export function useSupabaseRealtime() {
   const setWsStatus = useFloodStore((s) => s.setWsStatus);
 
   useEffect(() => {
+        async function teardownChannel(channel: RealtimeChannel | null) {
+          if (!channel) return;
+          try {
+            await channel.unsubscribe();
+          } catch (e) {
+            console.debug("[Supabase Realtime] unsubscribe failed:", e);
+          }
+          try {
+            await supabase.removeChannel(channel);
+          } catch (e) {
+            console.debug("[Supabase Realtime] removeChannel failed:", e);
+          }
+        }
+
     if (activeRef.current) return;
     activeRef.current = true;
 
@@ -164,19 +178,13 @@ export function useSupabaseRealtime() {
         setWsStatus("connecting");
       }
 
-      retryRef.current.timer = window.setTimeout(() => {
+      retryRef.current.timer = window.setTimeout(async () => {
         retryRef.current.timer = 0 as unknown as number;
         if (!activeRef.current) return;
 
         const previous = channelRef.current;
         channelRef.current = null;
-        if (previous) {
-          try {
-            supabase.removeChannel(previous);
-          } catch (e) {
-            console.debug("[Supabase Realtime] removeChannel failed:", e);
-          }
-        }
+        await teardownChannel(previous);
 
         const nextChannel = createChannel();
         channelRef.current = nextChannel;
@@ -266,6 +274,12 @@ export function useSupabaseRealtime() {
               setWsStatus("polling");
             }
 
+            // Stop channel-level internal rejoin loop before app-level retry backoff.
+            if (channelRef.current === channel) {
+              channelRef.current = null;
+              void teardownChannel(channel);
+            }
+
             scheduleReconnect();
           }
         });
@@ -289,7 +303,7 @@ export function useSupabaseRealtime() {
       const activeChannel = channelRef.current;
       channelRef.current = null;
       if (activeChannel) {
-        supabase.removeChannel(activeChannel);
+        void teardownChannel(activeChannel);
       }
     };
   }, [updateSensors, updatePrediction, setWsStatus]);
