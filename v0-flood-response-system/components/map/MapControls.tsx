@@ -255,7 +255,7 @@ export function MapControls({ config, actions, himawariAnimation, himawariHook, 
             />
 
             <p className="text-[10px] text-muted-foreground leading-tight">
-              NASA GIBS Infrared — Works day/night. 3-5h delay.
+              NASA GIBS Infrared — Works day/night. 3-5h delay. Coverage is Asia-Pacific only.
             </p>
 
             {config.himawari.enabled && (

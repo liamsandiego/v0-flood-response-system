@@ -57,7 +57,21 @@ export interface LocalSSEStatus {
   activeSensors: number;
 }
 
-export function useLocalSSE(): LocalSSEStatus {
+const DISABLED_STATUS: LocalSSEStatus = {
+  connected: false,
+  lastUpdate: null,
+  sensorOffline: false,
+  unsyncedCount: 0,
+  activeSensors: 0,
+};
+
+/**
+ * enabled — pass false (or omit) to completely disable SSE.
+ * Should only be true in LOCAL_MODE (self-hosted Pi/server).
+ * On Vercel/serverless, this must be false or the SSE error
+ * will overwrite the Supabase Realtime "connected" status.
+ */
+export function useLocalSSE(enabled: boolean = true): LocalSSEStatus {
   const updateSensors = useFloodStore((s) => s.updateSensors);
   const setWsStatus = useFloodStore((s) => s.setWsStatus);
 
@@ -174,6 +188,11 @@ export function useLocalSSE(): LocalSSEStatus {
   }
 
   useEffect(() => {
+    // In cloud/serverless mode, SSE is not available — bail out early.
+    // Do NOT connect: a 501 error from /api/sse would call setWsStatus("disconnected")
+    // and overwrite the "connected" status set by useSupabaseRealtime().
+    if (!enabled) return;
+
     connectSSE();
     return () => {
       esRef.current?.close();
@@ -181,7 +200,8 @@ export function useLocalSSE(): LocalSSEStatus {
       if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled]);
 
+  if (!enabled) return DISABLED_STATUS;
   return status;
 }

@@ -40,7 +40,7 @@ import { useNotifications } from "@/hooks/use-notifications"
 import { useMapLayers } from "@/hooks/use-map-layers"
 import { useHimawari } from "@/hooks/use-himawari"
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime"
-import { useLocalSSE } from "@/hooks/useLocalSSE"
+
 import { useSupabaseHistory } from "@/hooks/useSupabaseHistory"
 import { useFloodStore } from "@/stores/sensorStore"
 import { formatSensorValue } from "@/lib/conversion"
@@ -146,11 +146,7 @@ export default function AppShell() {
     layers.himawari.animating,
     layers.himawari.animationSpeed
   )
-  const isLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE === "true"
-
-  // Data source: Supabase Realtime is primary, SSE for local mode
-  // WebSocket disabled - was used for legacy mock data system
-  const sseStatus = useLocalSSE(false)
+  // Data source: Supabase Realtime (primary live data) + Supabase History (seed/historical)
   useSupabaseRealtime()  // Primary: subscribes to Supabase for live sensor data
   const wsStatus = useFloodStore((s) => s.wsStatus)
   const sensorData = useFloodStore((s) => s.sensorData)
@@ -602,26 +598,7 @@ export default function AppShell() {
             </div>
           </GlassPanel>
 
-          {/* ── LOCAL_MODE Status Banners ── */}
-          {isLocalMode && sseStatus.sensorOffline && (
-            <div className="pointer-events-auto mx-2 mt-1 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-900/80 border border-red-500/50 text-red-200 text-[11px] font-mono animate-pulse">
-              <Radio className="h-3.5 w-3.5 text-red-400 flex-shrink-0" />
-              <span className="font-bold">SENSOR OFFLINE</span>
-              <span className="text-red-300/70">— No LoRa data for &gt;30s. Check bridge.</span>
-            </div>
-          )}
-          {isLocalMode && !sseStatus.sensorOffline && sseStatus.connected && sseStatus.lastUpdate && (
-            <div className="pointer-events-auto mx-2 mt-1 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-900/50 border border-emerald-500/30 text-emerald-200 text-[11px] font-mono">
-              <Radio className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
-              <span className="font-bold">LOCAL LIVE</span>
-              <span className="text-emerald-300/70">— SQLite · {sseStatus.activeSensors} sensor{sseStatus.activeSensors !== 1 ? "s" : ""} active</span>
-              {sseStatus.unsyncedCount === 0 ? (
-                <span className="ml-auto text-emerald-400 font-bold">● CLOUD SYNC</span>
-              ) : (
-                <span className="ml-auto text-yellow-400/80">{sseStatus.unsyncedCount} unsynced</span>
-              )}
-            </div>
-          )}
+
         </div>
 
         {/* ═══════ MAIN CONTENT AREA ═══════ */}

@@ -45,36 +45,29 @@ interface AuthContextType {
   logout: () => Promise<void>
 }
 
-const AUTH_REQUEST_TIMEOUT_MS = 45_000
-const AUTH_MAX_RETRIES = 1
-const AUTH_INIT_TIMEOUT_MS = 20_000
-const AUTH_INIT_MAX_RETRIES = 1
+// ---------------------------------------------------------------------------
+// Timeouts — kept short so failures surface quickly instead of hanging.
+// getSession() reads from localStorage first so 8 s for init is generous.
+// Login is a single network call; 10 s is more than enough.
+// ---------------------------------------------------------------------------
+const AUTH_LOGIN_TIMEOUT_MS   = 10_000
+const AUTH_INIT_TIMEOUT_MS    = 8_000
+const AUTH_RESET_TIMEOUT_MS   = 10_000
 
-async function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+async function withTimeout<T>(
+  promise: PromiseLike<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   try {
     const timeoutPromise = new Promise<T>((_, reject) => {
       timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
     })
-
     return await Promise.race([Promise.resolve(promise), timeoutPromise])
   } finally {
     if (timeoutId) clearTimeout(timeoutId)
   }
-}
-
-function isRetryableAuthError(message: string): boolean {
-  const text = message.toLowerCase()
-  return (
-    text.includes("timed out") ||
-    text.includes("network") ||
-    text.includes("failed to fetch") ||
-    text.includes("fetch")
-  )
-}
-
-async function pause(ms: number) {
-  await new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -114,43 +107,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true
 
+    // ── 1. Restore session on page load/refresh ──────────────────────────────
     const initializeSession = async () => {
-      for (let attempt = 0; attempt <= AUTH_INIT_MAX_RETRIES; attempt += 1) {
-        try {
-          const { data: { session } } = await withTimeout(
-            supabase.auth.getSession(),
-            AUTH_INIT_TIMEOUT_MS,
-            "Initial session check timed out"
-          )
-
-          if (!active) return
-
-          if (session?.user) {
-            const profile = await fetchProfile(session.user)
-            if (active) setUser(profile)
-          }
-
-          if (active) setIsLoading(false)
-          return
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Session check failed"
-          const shouldRetry = attempt < AUTH_INIT_MAX_RETRIES && isRetryableAuthError(message)
-
-          if (shouldRetry) {
-            await pause(500 * (attempt + 1))
-            continue
-          }
-
-          console.warn("[Auth] Session check failed — showing login:", message)
-          if (active) setIsLoading(false)
-          return
+      try {
+        // getSession() reads from localStorage synchronously in most cases,
+        // only hitting the network when the access token is expired and needs
+        // refreshing via the refresh token. Either way 8 s is plenty.
+        const { data: { session } } = await withTimeout(
+          supabase.auth.getSession(),
+          AUTH_INIT_TIMEOUT_MS,
+          "Session restore timed out"
+        )
+        if (!active) return
+        if (session?.user) {
+          const profile = await fetchProfile(session.user)
+          if (active) setUser(profile)
         }
+      } catch (err) {
+        // Failed or timed out — just drop through and show the login screen.
+        console.warn("[Auth] Session restore failed:", err instanceof Error ? err.message : err)
+      } finally {
+        if (active) setIsLoading(false)
       }
     }
 
     void initializeSession()
 
-    // Listen for auth state changes — handles sign-in and sign-out automatically
+    // ── 2. Single source of truth for all auth state changes ─────────────────
+    // login() only calls signInWithPassword and returns the result.
+    // This listener is the ONLY place that calls setUser, which eliminates
+    // the race condition that previously caused the dashboard to hang and
+    // require a page refresh to appear.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event: string, session: { user: SupabaseUser } | null) => {
         try {
@@ -172,43 +159,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Login requires a valid Supabase email + password — no bypass
-  const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    let attempt = 0
-    while (attempt <= AUTH_MAX_RETRIES) {
-      try {
-        const result = await withTimeout(
-          supabase.auth.signInWithPassword({ email: email.trim(), password }),
-          AUTH_REQUEST_TIMEOUT_MS,
-          "Login request timed out"
-        )
-        const { data, error } = result
-
-        if (error) return { success: false, error: error.message }
-
-        if (data?.user) {
-          const profile = await fetchProfile(data.user)
-          setUser(profile)
-        }
-
-        return { success: true }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Login failed"
-        if (attempt < AUTH_MAX_RETRIES && isRetryableAuthError(message)) {
-          await pause(500 * (attempt + 1))
-          attempt += 1
-          continue
-        }
-        return { success: false, error: message }
-      }
+  // ── login ──────────────────────────────────────────────────────────────────
+  // Deliberately does NOT call fetchProfile or setUser here.
+  // onAuthStateChange fires SIGNED_IN after a successful signInWithPassword
+  // and handles setUser as the single source of truth. Calling setUser in two
+  // places simultaneously was the root cause of the refresh-required bug.
+  const login = useCallback(async (
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.signInWithPassword({ email: email.trim(), password }),
+        AUTH_LOGIN_TIMEOUT_MS,
+        "Login timed out. Check your connection and try again."
+      )
+      if (error) return { success: false, error: error.message }
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : "Login failed" }
     }
-
-    return { success: false, error: "Login failed" }
   }, [])
 
-  // Logout: call signOut, then forcibly clear local state regardless of result.
-  // We do NOT rely solely on the SIGNED_OUT event because a network failure would
-  // silently swallow the error and leave the user stuck on the dashboard.
+  // ── logout ─────────────────────────────────────────────────────────────────
+  // Calls signOut, then unconditionally clears local state.
+  // We do NOT rely solely on the SIGNED_OUT event because a network failure
+  // would leave the user stuck on the dashboard with no way out.
   const logout = useCallback(async () => {
     try {
       await supabase.auth.signOut()
@@ -219,33 +195,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const resetPassword = useCallback(async (email: string): Promise<{ success: boolean; error?: string }> => {
-    let attempt = 0
-    while (attempt <= AUTH_MAX_RETRIES) {
-      try {
-        const result = await withTimeout(
-          supabase.auth.resetPasswordForEmail(email.trim(), {
-            redirectTo: typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined,
-          }),
-          AUTH_REQUEST_TIMEOUT_MS,
-          "Reset password request timed out"
-        )
-        const { error } = result
-
-        if (error) return { success: false, error: error.message }
-        return { success: true }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Reset password failed"
-        if (attempt < AUTH_MAX_RETRIES && isRetryableAuthError(message)) {
-          await pause(500 * (attempt + 1))
-          attempt += 1
-          continue
-        }
-        return { success: false, error: message }
-      }
+  // ── resetPassword ──────────────────────────────────────────────────────────
+  const resetPassword = useCallback(async (
+    email: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: typeof window !== "undefined"
+            ? `${window.location.origin}/reset-password`
+            : undefined,
+        }),
+        AUTH_RESET_TIMEOUT_MS,
+        "Reset password request timed out"
+      )
+      if (error) return { success: false, error: error.message }
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : "Reset password failed" }
     }
-
-    return { success: false, error: "Reset password failed" }
   }, [])
 
   if (isLoading) {
