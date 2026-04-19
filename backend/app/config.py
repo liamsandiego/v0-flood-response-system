@@ -85,8 +85,18 @@ CORS_ORIGINS = os.getenv(
 ).split(",")
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
-SUPABASE_URL         = os.getenv("NEXT_PUBLIC_SUPABASE_URL", os.getenv("SUPABASE_URL", ""))
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", os.getenv("SUPABASE_SERVICE_KEY", ""))
+# Supabase configuration.
+# Prefer explicit backend env vars (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`).
+# For local/dev convenience, fall back to NEXT_PUBLIC_* values if the server-side
+# env vars are not present. NOTE: falling back to the anon key reduces server
+# privileges (no writes) and may be unsuitable for production — keep service
+# role keys out of frontend environments in production.
+SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = (
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    or os.getenv("SUPABASE_SERVICE_KEY")
+    or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+)
 
 # ── AI / LLM ──────────────────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
