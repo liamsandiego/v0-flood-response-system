@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { supabase } from "@/lib/supabase"
+import { supabaseAuth } from "@/lib/supabase"
 import { Droplets, Eye, EyeOff, CheckCircle, AlertCircle, Lock } from "lucide-react"
 import dynamic from "next/dynamic"
 
@@ -19,7 +19,7 @@ export default function ResetPasswordPage() {
 
   // Supabase listens to the hash fragment (#access_token=...) from the email link
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    const { data: { subscription } } = supabaseAuth.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") {
         setSessionReady(true)
       }
@@ -42,7 +42,7 @@ export default function ResetPasswordPage() {
     }
     setError("")
     setLoading(true)
-    const { error: updateError } = await supabase.auth.updateUser({ password })
+    const { error: updateError } = await supabaseAuth.auth.updateUser({ password })
     if (updateError) {
       setError(updateError.message)
       setStatus("error")

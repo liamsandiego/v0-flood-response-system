@@ -327,6 +327,47 @@ export default function AppShell() {
       uptime < 3600 ? `${Math.floor(uptime / 60)}m ${uptime % 60}s` :
         `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`
 
+  const wsStatusDisplay = (() => {
+    switch (wsStatus) {
+      case "connected":
+        return {
+          dot: "bg-emerald-400",
+          label: "LIVE",
+          detail: "SUPABASE LIVE • NO FRESH ROW",
+        }
+      case "polling":
+        return {
+          dot: "bg-cyan-400 animate-pulse",
+          label: "POLLING",
+          detail: "SUPABASE POLLING FALLBACK",
+        }
+      case "connecting":
+        return {
+          dot: "bg-yellow-400 animate-pulse",
+          label: "CONNECTING",
+          detail: "SUPABASE CONNECTING",
+        }
+      case "disabled":
+        return {
+          dot: "bg-slate-400",
+          label: "DISABLED",
+          detail: "SUPABASE DISABLED",
+        }
+      case "disconnected":
+        return {
+          dot: "bg-red-400",
+          label: "DISCONNECTED",
+          detail: "SUPABASE RECONNECTING",
+        }
+      default:
+        return {
+          dot: "bg-red-400",
+          label: "ERROR",
+          detail: "SUPABASE RECONNECTING",
+        }
+    }
+  })()
+
   // ── Sensor card renderer ──
   const renderSensorCard = (sensorId: string) => {
     if (
@@ -424,9 +465,9 @@ export default function AppShell() {
         <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-3 py-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <div className={`h-2 w-2 rounded-full ${wsStatus === "connected" ? "bg-emerald-400" : "bg-yellow-400 animate-pulse"}`} />
+              <div className={`h-2 w-2 rounded-full ${wsStatusDisplay.dot}`} />
               <span className="text-[11px] text-white/70 font-mono truncate">
-                {wsStatus === "connected" ? "SUPABASE LIVE • NO FRESH ROW" : "SUPABASE RECONNECTING"}
+                {wsStatusDisplay.detail}
               </span>
             </div>
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">FLATLINE</span>
@@ -552,14 +593,10 @@ export default function AppShell() {
             <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
               {/* WebSocket status */}
               <div className="flex items-center gap-1">
-                <div className={`h-2 w-2 rounded-full ${
-                  wsStatus === "connected" ? "bg-emerald-400" :
-                  wsStatus === "connecting" ? "bg-yellow-400 animate-pulse" :
-                  "bg-red-400"
-                }`} />
+                <div className={`h-2 w-2 rounded-full ${wsStatusDisplay.dot}`} />
                 {!isTouch && (
                   <span className="text-[10px] text-white/50 hidden lg:inline">
-                    {wsStatus === "connected" ? "LIVE" : wsStatus.toUpperCase()}
+                    {wsStatusDisplay.label}
                   </span>
                 )}
               </div>

@@ -9,13 +9,30 @@
 
 import { useFloodStore } from "@/stores/sensorStore";
 import type { AlertLevel } from "@/stores/sensorStore";
-import { useCallback } from "react";
 
 const ALERT_DOT: Record<AlertLevel, string> = {
   CLEAR: "bg-emerald-400",
   WATCH: "bg-amber-400",
   WARNING: "bg-orange-400",
   DANGER: "bg-red-400",
+};
+
+const CONNECTION_DOT: Record<string, string> = {
+  connected: "bg-emerald-400 animate-pulse",
+  polling: "bg-cyan-400 animate-pulse",
+  connecting: "bg-amber-400 animate-pulse",
+  disabled: "bg-slate-400",
+  disconnected: "bg-red-400",
+  error: "bg-red-400",
+};
+
+const CONNECTION_LABEL: Record<string, string> = {
+  connected: "LIVE",
+  polling: "POLLING",
+  connecting: "CONNECTING",
+  disabled: "DISABLED",
+  disconnected: "DISCONNECTED",
+  error: "ERROR",
 };
 
 interface StatusBarProps {
@@ -42,12 +59,10 @@ export default function StatusBar({ onTriggerFlood, onStopFlood }: StatusBarProp
       {/* Connection */}
       <div className="flex items-center gap-1.5">
         <div
-          className={`w-2 h-2 rounded-full ${
-            wsStatus === "connected" ? "bg-emerald-400 animate-pulse" : "bg-red-400"
-          }`}
+          className={`w-2 h-2 rounded-full ${CONNECTION_DOT[wsStatus] || "bg-red-400"}`}
         />
         <span className="font-mono text-[10px] text-white/50 uppercase">
-          {wsStatus === "connected" ? "LIVE" : wsStatus}
+          {CONNECTION_LABEL[wsStatus] || wsStatus}
         </span>
       </div>
 

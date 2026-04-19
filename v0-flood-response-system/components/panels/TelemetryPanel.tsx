@@ -23,6 +23,24 @@ const ALERT_CONFIG: Record<AlertLevel, { label: string; dot: string; bg: string 
   DANGER: { label: "DANGER", dot: "bg-red-400", bg: "text-red-400" },
 };
 
+const CONNECTION_DOT: Record<string, string> = {
+  connected: "bg-emerald-400 animate-pulse",
+  polling: "bg-cyan-400 animate-pulse",
+  connecting: "bg-amber-400 animate-pulse",
+  disabled: "bg-slate-400",
+  disconnected: "bg-red-400",
+  error: "bg-red-400",
+};
+
+const CONNECTION_LABEL: Record<string, string> = {
+  connected: "LIVE",
+  polling: "POLLING",
+  connecting: "CONNECTING",
+  disabled: "DISABLED",
+  disconnected: "DISCONNECTED",
+  error: "ERROR",
+};
+
 function classifyAlert(wl: number): AlertLevel {
   if (wl >= 2.5) return "DANGER";
   if (wl >= 1.5) return "WARNING";
@@ -83,16 +101,10 @@ export default function TelemetryPanel() {
         <div className="mt-3 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <div
-              className={`w-2 h-2 rounded-full ${
-                wsStatus === "connected"
-                  ? "bg-emerald-400 animate-pulse"
-                  : wsStatus === "connecting"
-                  ? "bg-amber-400 animate-pulse"
-                  : "bg-red-400"
-              }`}
+              className={`w-2 h-2 rounded-full ${CONNECTION_DOT[wsStatus] || "bg-red-400"}`}
             />
             <span className="font-mono text-[10px] text-white/60 uppercase">
-              {wsStatus}
+              {CONNECTION_LABEL[wsStatus] || wsStatus}
             </span>
           </div>
           <span className="font-mono text-[10px] text-white/30">

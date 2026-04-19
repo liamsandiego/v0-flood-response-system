@@ -75,6 +75,8 @@ export function useSupabaseRealtime() {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const activeRef = useRef(false);
   const retryRef = useRef({ count: 0, timer: 0 as unknown as number });
+  const maxRetriesLoggedRef = useRef(false);
+
   const MAX_RETRIES = 6;
   const pollIntervalRef = useRef(0 as unknown as number | null);
 
@@ -87,164 +89,207 @@ export function useSupabaseRealtime() {
     activeRef.current = true;
 
     console.log("[Supabase Realtime] Connecting...");
-    logTelemetry('realtime.connect', 'attempting connection')
+    logTelemetry("realtime.connect", "attempting connection");
+    setWsStatus("connecting");
 
     // Guard: ensure environment variables are present (avoid unreliable runtime client introspection)
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-      console.warn('[Supabase Realtime] Supabase env vars missing, realtime disabled.');
-      setWsStatus('disabled');
+      console.warn("[Supabase Realtime] Supabase env vars missing, realtime disabled.");
+      setWsStatus("disabled");
       return;
     }
 
-    function createChannel() {
-      // create a new channel instance each attempt
-      return supabase
-        .channel("realtime-environmental")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "obando_environmental_data" },
-        (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
-          const row = payload.new as SupabaseRawReading;
-          try { logTelemetry('realtime.insert.received', undefined, { id: row.id, device: row.Device }); } catch {}
-          const feature = toFeature(row);
+    function stopPollingFallback() {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current as unknown as number);
+        pollIntervalRef.current = null;
+      }
+    }
 
-          // Replace or add the feature
-          const current = useFloodStore.getState().sensorData;
-          const existingIds = new Set(current.features.map((f) => f.properties.sensor_id));
+    function startPollingFallback() {
+      if (pollIntervalRef.current) return;
 
-          let features: GeoJSONFeature[];
-          if (existingIds.has(feature.properties.sensor_id)) {
-            features = current.features.map((f) =>
-              f.properties.sensor_id === feature.properties.sensor_id ? feature : f
-            );
-          } else {
-            features = [...current.features, feature];
+      const poll = async () => {
+        try {
+          const { data, error } = await supabasePublic
+            .from("obando_environmental_data")
+            .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
+            .order("id", { ascending: false })
+            .limit(50);
+
+          if (error) {
+            console.warn("[Supabase Poll] error", error.message);
+            logTelemetry("realtime.poll.error", error.message);
+            return;
+          }
+          if (!data || data.length === 0) return;
+
+          // Keep only latest row per sensor to prevent duplicated stacked markers
+          // and history spikes while fallback polling is active.
+          const bySensor = new Map<string, SupabaseRawReading>();
+          for (const row of data as SupabaseRawReading[]) {
+            const sensorId = row["Device"] || "obando-main";
+            if (!bySensor.has(sensorId)) {
+              bySensor.set(sensorId, row);
+            }
           }
 
+          const features = Array.from(bySensor.values()).map((row) => toFeature(row));
           const geojson: SensorGeoJSON = { type: "FeatureCollection", features };
           updateSensors(geojson);
+          setWsStatus("polling");
+          logTelemetry("realtime.poll.success", undefined, {
+            rows: (data as SupabaseRawReading[]).length,
+            sensors: features.length,
+          });
+        } catch (e) {
+          console.warn("[Supabase Poll] failed", e);
+          logTelemetry("realtime.poll.failed", String(e));
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "flood_predictions" },
-        (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
-          const row = payload.new as Record<string, unknown>;
-          const prediction: Prediction = {
-            flood_probability: row.flood_probability as number,
-            alert_level: ((row.risk_tier as string) ?? "NORMAL").toUpperCase() as Prediction["alert_level"],
-            features_used: {},
-            method: "rule_based" as Prediction["method"],
-            timestamp: (row.timestamp as string) ?? new Date().toISOString(),
-          };
-          updatePrediction(prediction);
+      };
+
+      void poll();
+      pollIntervalRef.current = window.setInterval(poll, 5000) as unknown as number;
+    }
+
+    function scheduleReconnect() {
+      if (!activeRef.current) return;
+      if (retryRef.current.timer) return;
+
+      const attempts = retryRef.current.count || 0;
+      const backoff = Math.min(30000, 1000 * Math.pow(2, attempts));
+      retryRef.current.count = attempts + 1;
+
+      if (!pollIntervalRef.current) {
+        setWsStatus("connecting");
+      }
+
+      retryRef.current.timer = window.setTimeout(() => {
+        retryRef.current.timer = 0 as unknown as number;
+        if (!activeRef.current) return;
+
+        const previous = channelRef.current;
+        channelRef.current = null;
+        if (previous) {
+          try {
+            supabase.removeChannel(previous);
+          } catch (e) {
+            console.debug("[Supabase Realtime] removeChannel failed:", e);
+          }
         }
-      )
+
+        const nextChannel = createChannel();
+        channelRef.current = nextChannel;
+      }, backoff) as unknown as number;
+    }
+
+    function createChannel() {
+      const channel = supabase
+        .channel("realtime-environmental")
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "obando_environmental_data" },
+          (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
+            const row = payload.new as SupabaseRawReading;
+            try {
+              logTelemetry("realtime.insert.received", undefined, { id: row.id, device: row.Device });
+            } catch {
+              // no-op
+            }
+
+            const feature = toFeature(row);
+
+            // Replace or add by sensor_id to avoid duplicate map points.
+            const current = useFloodStore.getState().sensorData;
+            const existingIds = new Set(current.features.map((f) => f.properties.sensor_id));
+
+            let features: GeoJSONFeature[];
+            if (existingIds.has(feature.properties.sensor_id)) {
+              features = current.features.map((f) =>
+                f.properties.sensor_id === feature.properties.sensor_id ? feature : f
+              );
+            } else {
+              features = [...current.features, feature];
+            }
+
+            const geojson: SensorGeoJSON = { type: "FeatureCollection", features };
+            updateSensors(geojson);
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "flood_predictions" },
+          (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
+            const row = payload.new as Record<string, unknown>;
+            const prediction: Prediction = {
+              flood_probability: row.flood_probability as number,
+              alert_level: ((row.risk_tier as string) ?? "NORMAL").toUpperCase() as Prediction["alert_level"],
+              features_used: {},
+              method: "rule_based" as Prediction["method"],
+              timestamp: (row.timestamp as string) ?? new Date().toISOString(),
+            };
+            updatePrediction(prediction);
+          }
+        )
         .subscribe((status: string) => {
+          // Ignore events from stale channels after reconnect switched refs.
+          if (!activeRef.current || channelRef.current !== channel) return;
+
           if (status === "SUBSCRIBED") {
             console.log("[Supabase Realtime] Connected");
             retryRef.current.count = 0;
+            maxRetriesLoggedRef.current = false;
             setWsStatus("connected");
-            // stop any fallback polling when realtime is healthy
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current as unknown as number);
-              pollIntervalRef.current = null;
-            }
-          } else if (status === "CHANNEL_ERROR" || status === "CLOSED") {
+            stopPollingFallback();
+            return;
+          }
+
+          if (status === "CHANNEL_ERROR" || status === "CLOSED" || status === "TIMED_OUT") {
             const attempts = retryRef.current.count || 0;
-            // Only log error aggressively after a few attempts to avoid console spam
+
             if (attempts >= 1) {
               console.warn("[Supabase Realtime] Channel status:", status, "attempt", attempts);
             } else {
               console.debug("[Supabase Realtime] Channel status:", status, "attempt", attempts);
             }
 
-            setWsStatus("error");
-            logTelemetry('realtime.channel_status', String(status), { attempts })
+            setWsStatus(pollIntervalRef.current ? "polling" : "error");
+            logTelemetry("realtime.channel_status", String(status), { attempts });
 
             if (attempts >= MAX_RETRIES) {
-              console.error("[Supabase Realtime] Max reconnect attempts reached; starting fallback polling and continuing reconnect attempts in background.");
-              logTelemetry('realtime.max_retries', 'starting fallback polling', { attempts })
-              // Start fallback polling to keep the UI live even when realtime is unstable
-              if (!pollIntervalRef.current) {
-                const poll = async () => {
-                  try {
-                    const { data, error } = await supabasePublic
-                      .from("obando_environmental_data")
-                      .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
-                      .order('id', { ascending: false })
-                      .limit(50);
-                    if (error) {
-                      console.warn('[Supabase Poll] error', error.message);
-                      logTelemetry('realtime.poll.error', error.message)
-                      return;
-                    }
-                    if (!data || data.length === 0) return;
-                    // reuse existing normalization and snapshot logic by batching into features
-                    const rows = data as any[];
-                    const features = rows.map((row) => toFeature(row as any));
-                    const geojson = { type: 'FeatureCollection', features } as any;
-                    updateSensors(geojson);
-                    setWsStatus('polling');
-                    logTelemetry('realtime.poll.success', undefined, { rows: (data && (data as any[]).length) || 0 })
-                  } catch (e) {
-                    console.warn('[Supabase Poll] failed', e);
-                    logTelemetry('realtime.poll.failed', String(e))
-                  }
-                };
-                // initial immediate poll
-                poll();
-                pollIntervalRef.current = window.setInterval(poll, 5000) as unknown as number;
+              if (!maxRetriesLoggedRef.current) {
+                console.error("[Supabase Realtime] Max reconnect attempts reached; starting fallback polling and continuing reconnect attempts in background.");
+                maxRetriesLoggedRef.current = true;
               }
-              // continue reconnect attempts but do not block the UI
+              logTelemetry("realtime.max_retries", "starting fallback polling", { attempts });
+              startPollingFallback();
+              setWsStatus("polling");
             }
 
-            // attempt reconnect with exponential backoff
-            const backoff = Math.min(30000, 1000 * Math.pow(2, attempts));
-            retryRef.current.count = attempts + 1;
-
-            // cleanup previous channel and timer
-            if (retryRef.current.timer) {
-              clearTimeout(retryRef.current.timer as unknown as number);
-              retryRef.current.timer = 0 as unknown as number;
-            }
-
-            if (channelRef.current) {
-              try {
-                supabase.removeChannel(channelRef.current);
-              } catch (e) {
-                console.debug('[Supabase Realtime] removeChannel failed:', e);
-              }
-              channelRef.current = null;
-            }
-
-            // schedule reconnect
-            retryRef.current.timer = window.setTimeout(() => {
-              if (!activeRef.current) return;
-              try {
-                const newChannel = createChannel();
-                channelRef.current = newChannel;
-              } catch (e) {
-                console.error('[Supabase Realtime] Reconnect attempt failed:', e);
-              }
-            }, backoff) as unknown as number;
+            scheduleReconnect();
           }
         });
 
-      }
+      return channel;
+    }
 
     const channel = createChannel();
     channelRef.current = channel;
 
     return () => {
       activeRef.current = false;
+
       if (retryRef.current.timer) {
         clearTimeout(retryRef.current.timer as unknown as number);
         retryRef.current.timer = 0 as unknown as number;
       }
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
+
+      stopPollingFallback();
+
+      const activeChannel = channelRef.current;
+      channelRef.current = null;
+      if (activeChannel) {
+        supabase.removeChannel(activeChannel);
       }
     };
   }, [updateSensors, updatePrediction, setWsStatus]);

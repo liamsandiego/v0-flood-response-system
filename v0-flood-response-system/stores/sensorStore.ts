@@ -48,7 +48,13 @@ export interface Prediction {
 }
 
 export type AlertLevel = "CLEAR" | "WATCH" | "WARNING" | "DANGER";
-export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
+export type ConnectionStatus =
+  | "connecting"
+  | "connected"
+  | "polling"
+  | "disabled"
+  | "disconnected"
+  | "error";
 
 export interface SensorHistoryEntry {
   timestamp: string;

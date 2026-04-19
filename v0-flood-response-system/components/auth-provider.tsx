@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
 import dynamic from "next/dynamic"
-import { supabase } from "@/lib/supabase"
+import { supabaseAuth } from "@/lib/supabase"
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 
 function DynLoader({ label }: { label: string }) {
@@ -73,7 +73,7 @@ async function withTimeout<T>(
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 async function fetchProfile(authUser: SupabaseUser): Promise<User> {
-  const { data } = await supabase
+  const { data } = await supabaseAuth
     .from("profiles")
     .select("username, full_name, role")
     .eq("id", authUser.id)
@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // only hitting the network when the access token is expired and needs
         // refreshing via the refresh token. Either way 8 s is plenty.
         const { data: { session } } = await withTimeout(
-          supabase.auth.getSession(),
+          supabaseAuth.auth.getSession(),
           AUTH_INIT_TIMEOUT_MS,
           "Session restore timed out"
         )
@@ -138,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // This listener is the ONLY place that calls setUser, which eliminates
     // the race condition that previously caused the dashboard to hang and
     // require a page refresh to appear.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    const { data: { subscription } } = supabaseAuth.auth.onAuthStateChange(
       async (event: string, session: { user: SupabaseUser } | null) => {
         try {
           if (event === "SIGNED_IN" && session?.user) {
@@ -170,7 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ): Promise<{ success: boolean; error?: string }> => {
     try {
       const { error } = await withTimeout(
-        supabase.auth.signInWithPassword({ email: email.trim(), password }),
+        supabaseAuth.auth.signInWithPassword({ email: email.trim(), password }),
         AUTH_LOGIN_TIMEOUT_MS,
         "Login timed out. Check your connection and try again."
       )
@@ -187,7 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // would leave the user stuck on the dashboard with no way out.
   const logout = useCallback(async () => {
     try {
-      await supabase.auth.signOut()
+      await supabaseAuth.auth.signOut()
     } catch (err) {
       console.warn("[Auth] signOut failed (network?), clearing local state anyway:", err)
     } finally {
@@ -201,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ): Promise<{ success: boolean; error?: string }> => {
     try {
       const { error } = await withTimeout(
-        supabase.auth.resetPasswordForEmail(email.trim(), {
+        supabaseAuth.auth.resetPasswordForEmail(email.trim(), {
           redirectTo: typeof window !== "undefined"
             ? `${window.location.origin}/reset-password`
             : undefined,

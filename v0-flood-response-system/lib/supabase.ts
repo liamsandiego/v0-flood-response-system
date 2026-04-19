@@ -50,6 +50,22 @@ export const supabase: SupabaseClient = createClient(
   }
 );
 
+// Auth/session client used by login/reset flows.
+// Keep this separate from read-only/public clients so dashboards can remain
+// stateless while auth persists across refreshes.
+export const supabaseAuth: SupabaseClient = createClient(
+  supabaseUrl || "",
+  supabaseAnonKey || "",
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storageKey: `sb-${projectRef}-auth-session`,
+    },
+  }
+);
+
 // Read-only client for dashboard fetch/realtime to avoid auth-lock contention.
 export const supabasePublic: SupabaseClient = createClient(
   supabaseUrl || "",

@@ -1,11 +1,12 @@
 "use client"
 
 import React, { useEffect, useState } from "react"
-import { getTelemetry, clearTelemetry } from "@/lib/realtimeTelemetry"
+import { getTelemetry, clearTelemetry, type TelemetryEvent } from "@/lib/realtimeTelemetry"
 
 export default function SupabaseDebugPage() {
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+  const [telemetry, setTelemetry] = useState<TelemetryEvent[]>([])
 
   useEffect(() => {
     let mounted = true
