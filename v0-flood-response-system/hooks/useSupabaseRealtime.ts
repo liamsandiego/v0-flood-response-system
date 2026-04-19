@@ -86,16 +86,11 @@ export function useSupabaseRealtime() {
 
     console.log("[Supabase Realtime] Connecting...");
 
-    // Guard: ensure Supabase client has config
-    try {
-      const testUrl = (supabase as any).url || '';
-      if (!testUrl) {
-        console.warn('[Supabase Realtime] Supabase client not configured, skipping realtime.');
-        setWsStatus('disabled');
-        return;
-      }
-    } catch (e) {
-      console.warn('[Supabase Realtime] Supabase client check failed:', e);
+    // Guard: ensure environment variables are present (avoid unreliable runtime client introspection)
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      console.warn('[Supabase Realtime] Supabase env vars missing, realtime disabled.');
+      setWsStatus('disabled');
+      return;
     }
 
     function createChannel() {
