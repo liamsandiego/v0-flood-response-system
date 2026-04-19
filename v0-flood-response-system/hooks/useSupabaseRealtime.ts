@@ -73,6 +73,7 @@ function toFeature(row: SupabaseRawReading): GeoJSONFeature {
 export function useSupabaseRealtime() {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const activeRef = useRef(false);
+  const retryRef = useRef({ count: 0, timer: 0 as unknown as number });
 
   const updateSensors = useFloodStore((s) => s.updateSensors);
   const updatePrediction = useFloodStore((s) => s.updatePrediction);
@@ -84,8 +85,10 @@ export function useSupabaseRealtime() {
 
     console.log("[Supabase Realtime] Connecting...");
 
-    const channel = supabase
-      .channel("realtime-environmental")
+    function createChannel() {
+      // create a new channel instance each attempt
+      return supabase
+        .channel("realtime-environmental")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "obando_environmental_data" },
@@ -125,23 +128,45 @@ export function useSupabaseRealtime() {
           updatePrediction(prediction);
         }
       )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          console.log("[Supabase Realtime] Connected");
-          setWsStatus("connected");
-        } else if (status === "CHANNEL_ERROR") {
-          console.error("[Supabase Realtime] Error");
-          setWsStatus("error");
-        }
-      });
+        .subscribe((status: string) => {
+          if (status === "SUBSCRIBED") {
+            console.log("[Supabase Realtime] Connected");
+            retryRef.current.count = 0;
+            setWsStatus("connected");
+          } else if (status === "CHANNEL_ERROR" || status === "CLOSED") {
+            console.error("[Supabase Realtime] Channel error/status:", status);
+            setWsStatus("error");
+            // attempt reconnect with exponential backoff
+            const attempts = retryRef.current.count || 0;
+            const backoff = Math.min(30000, 1000 * Math.pow(2, attempts));
+            retryRef.current.count = attempts + 1;
+            if (channelRef.current) {
+              try { supabase.removeChannel(channelRef.current); } catch {}
+              channelRef.current = null;
+            }
+            // schedule reconnect
+            retryRef.current.timer = window.setTimeout(() => {
+              if (!activeRef.current) return;
+              const newChannel = createChannel();
+              channelRef.current = newChannel;
+            }, backoff) as unknown as number;
+          }
+        });
 
+      }
+
+    const channel = createChannel();
     channelRef.current = channel;
 
     return () => {
+      activeRef.current = false;
+      if (retryRef.current.timer) {
+        clearTimeout(retryRef.current.timer as unknown as number);
+        retryRef.current.timer = 0 as unknown as number;
+      }
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
-        activeRef.current = false;
       }
     };
   }, [updateSensors, updatePrediction, setWsStatus]);

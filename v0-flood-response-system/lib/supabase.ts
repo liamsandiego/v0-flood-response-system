@@ -40,9 +40,12 @@ export const supabase: SupabaseClient = createClient(
   supabaseUrl || "",
   supabaseAnonKey || "",
   {
+    // Avoid client-side session persistence for public/anon usage to reduce
+    // intermittent auth/session state bugs across refreshes.
     auth: {
-      persistSession: true,
-      detectSessionInUrl: true,
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
     },
   }
 );
