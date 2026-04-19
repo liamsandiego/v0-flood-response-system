@@ -74,6 +74,7 @@ export function useSupabaseRealtime() {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const activeRef = useRef(false);
   const retryRef = useRef({ count: 0, timer: 0 as unknown as number });
+  const MAX_RETRIES = 6;
 
   const updateSensors = useFloodStore((s) => s.updateSensors);
   const updatePrediction = useFloodStore((s) => s.updatePrediction);
@@ -84,6 +85,18 @@ export function useSupabaseRealtime() {
     activeRef.current = true;
 
     console.log("[Supabase Realtime] Connecting...");
+
+    // Guard: ensure Supabase client has config
+    try {
+      const testUrl = (supabase as any).url || '';
+      if (!testUrl) {
+        console.warn('[Supabase Realtime] Supabase client not configured, skipping realtime.');
+        setWsStatus('disabled');
+        return;
+      }
+    } catch (e) {
+      console.warn('[Supabase Realtime] Supabase client check failed:', e);
+    }
 
     function createChannel() {
       // create a new channel instance each attempt
@@ -134,21 +147,49 @@ export function useSupabaseRealtime() {
             retryRef.current.count = 0;
             setWsStatus("connected");
           } else if (status === "CHANNEL_ERROR" || status === "CLOSED") {
-            console.error("[Supabase Realtime] Channel error/status:", status);
-            setWsStatus("error");
-            // attempt reconnect with exponential backoff
             const attempts = retryRef.current.count || 0;
+            // Only log error aggressively after a few attempts to avoid console spam
+            if (attempts >= 1) {
+              console.warn("[Supabase Realtime] Channel status:", status, "attempt", attempts);
+            } else {
+              console.debug("[Supabase Realtime] Channel status:", status, "attempt", attempts);
+            }
+
+            setWsStatus("error");
+
+            if (attempts >= MAX_RETRIES) {
+              console.error("[Supabase Realtime] Max reconnect attempts reached; giving up until manual reload.");
+              return;
+            }
+
+            // attempt reconnect with exponential backoff
             const backoff = Math.min(30000, 1000 * Math.pow(2, attempts));
             retryRef.current.count = attempts + 1;
+
+            // cleanup previous channel and timer
+            if (retryRef.current.timer) {
+              clearTimeout(retryRef.current.timer as unknown as number);
+              retryRef.current.timer = 0 as unknown as number;
+            }
+
             if (channelRef.current) {
-              try { supabase.removeChannel(channelRef.current); } catch {}
+              try {
+                supabase.removeChannel(channelRef.current);
+              } catch (e) {
+                console.debug('[Supabase Realtime] removeChannel failed:', e);
+              }
               channelRef.current = null;
             }
+
             // schedule reconnect
             retryRef.current.timer = window.setTimeout(() => {
               if (!activeRef.current) return;
-              const newChannel = createChannel();
-              channelRef.current = newChannel;
+              try {
+                const newChannel = createChannel();
+                channelRef.current = newChannel;
+              } catch (e) {
+                console.error('[Supabase Realtime] Reconnect attempt failed:', e);
+              }
             }, backoff) as unknown as number;
           }
         });
