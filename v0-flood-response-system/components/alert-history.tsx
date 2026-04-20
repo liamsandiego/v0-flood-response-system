@@ -27,6 +27,15 @@ const MAX_PREDICTIONS = 200
 const HISTORY_CACHE_KEY = "rapidrelay:history-tab-cache:v1"
 const HISTORY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
+const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: true,
+})
+
 interface HistoryCachePayload {
   updatedAt: number
   predictions: FloodPrediction[]
@@ -75,6 +84,13 @@ function mergePredictions(prev: FloodPrediction[], incoming: FloodPrediction[]) 
   for (const p of prev) map.set(p.id, p)
   for (const p of incoming) map.set(p.id, p)
   return sortPredictions(Array.from(map.values())).slice(0, MAX_PREDICTIONS)
+}
+
+function formatTimestamp(value: string | null): string {
+  if (!value) return "—"
+  const ms = new Date(value).getTime()
+  if (!Number.isFinite(ms)) return "—"
+  return TIMESTAMP_FORMATTER.format(new Date(ms))
 }
 
 async function withHardTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
@@ -245,6 +261,7 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
             </CardTitle>
             <CardDescription className="text-xs md:text-sm">
               {loading ? "Loading…" : `${predictions.length} prediction${predictions.length !== 1 ? "s" : ""}`}
+              {!loading && " • Local time"}
               {refreshing && !loading && " • Refreshing..."}
               {highRiskCount > 0 && (
                 <span className="text-red-500 font-semibold ml-1">
@@ -279,7 +296,6 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
               {predictions.map((p) => {
                 const prob = p.flood_probability ?? 0
                 const tier = p.risk_tier ?? "unknown"
-                const ts = new Date(p.timestamp ?? p.created_at ?? "")
                 const isHighRisk = ["high", "critical"].includes(tier.toLowerCase())
 
                 return (
@@ -324,7 +340,7 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
 
                         <div className="flex items-center gap-1 text-[10px] md:text-xs text-muted-foreground pt-0.5">
                           <Clock className="h-3 w-3" />
-                          {isNaN(ts.getTime()) ? "—" : ts.toLocaleString()}
+                          {formatTimestamp(p.timestamp ?? p.created_at)}
                         </div>
                       </div>
                     </div>

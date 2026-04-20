@@ -92,6 +92,7 @@ interface FloodStore {
 
   // UI Preferences
   unit: "metric" | "imperial";
+  temperatureUnit: "celsius" | "fahrenheit";
 
   // Actions
   updateSensors: (data: SensorGeoJSON) => void;
@@ -102,6 +103,7 @@ interface FloodStore {
   triggerCriticalMode: (message: string) => void;
   resetCriticalMode: () => void;
   setUnit: (unit: "metric" | "imperial") => void;
+  setTemperatureUnit: (unit: "celsius" | "fahrenheit") => void;
 }
 
 const MAX_HISTORY = 120; // 10 minutes at 5s intervals
@@ -120,9 +122,23 @@ export const useFloodStore = create<FloodStore>((set, get) => ({
   tick: 0,
   clientCount: 0,
   unit: "metric",
+  temperatureUnit: "celsius",
 
   // Actions
   updateSensors: (data) => {
+    const previousFeatures = get().sensorData.features;
+    if (previousFeatures.length === data.features.length) {
+      const prevBySensor = new Map(
+        previousFeatures.map((f) => [f.properties.sensor_id, f.properties.timestamp])
+      );
+      const unchanged = data.features.every(
+        (f) => prevBySensor.get(f.properties.sensor_id) === f.properties.timestamp
+      );
+      if (unchanged) {
+        return;
+      }
+    }
+
     const history = new Map(get().sensorHistory);
 
     for (const feature of data.features) {
@@ -188,6 +204,13 @@ export const useFloodStore = create<FloodStore>((set, get) => ({
       localStorage.setItem("rapidrelay_unit", unit);
     }
   },
+
+  setTemperatureUnit: (temperatureUnit) => {
+    set({ temperatureUnit });
+    if (typeof window !== "undefined") {
+      localStorage.setItem("rapidrelay_temperature_unit", temperatureUnit);
+    }
+  },
 }));
 
 // Hydrate unit preference from localStorage on first load
@@ -195,5 +218,10 @@ if (typeof window !== "undefined") {
   const saved = localStorage.getItem("rapidrelay_unit");
   if (saved === "metric" || saved === "imperial") {
     useFloodStore.setState({ unit: saved });
+  }
+
+  const savedTemperature = localStorage.getItem("rapidrelay_temperature_unit");
+  if (savedTemperature === "celsius" || savedTemperature === "fahrenheit") {
+    useFloodStore.setState({ temperatureUnit: savedTemperature });
   }
 }

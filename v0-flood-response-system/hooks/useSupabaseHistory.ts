@@ -38,13 +38,15 @@ interface NormalizedReading {
 }
 
 // Convert raw Supabase row to normalized reading
-function normalizeReading(raw: SupabaseRawReading): NormalizedReading {
-  let timestamp = new Date().toISOString();
+function normalizeReading(raw: SupabaseRawReading): NormalizedReading | null {
+  let timestamp: string | null = null;
   if (raw["Date"] && raw["Time"]) {
     timestamp = `${raw["Date"]}T${raw["Time"]}`;
   } else if (raw["Date"]) {
     timestamp = `${raw["Date"]}T00:00:00`;
   }
+
+  if (!timestamp) return null;
 
   return {
     id: raw.id,
@@ -57,8 +59,14 @@ function normalizeReading(raw: SupabaseRawReading): NormalizedReading {
   };
 }
 
+function toMillis(value: string): number | null {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 // Water level calculation constant
 const DIKE_HEIGHT_M = 4.038; // 13'3" = 4.038 meters
+const REFRESH_INTERVAL_MS = 20_000;
 
 /**
  * Convert a batch of normalized readings into a SensorSnapshot for the History tab.
@@ -129,12 +137,17 @@ export function useSupabaseHistory(
   setHistory: React.Dispatch<React.SetStateAction<SensorSnapshot[]>>
 ) {
   const loaded = useRef(false);
+  const fetchingRef = useRef(false);
 
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
+    let active = true;
 
     async function fetchHistory() {
+      if (fetchingRef.current) return;
+      fetchingRef.current = true;
+
       const timeout = setTimeout(() => {
         console.warn("[History] Supabase query timed out after 5s");
       }, 5000);
@@ -144,6 +157,8 @@ export function useSupabaseHistory(
         const { data, error } = await supabasePublic
           .from("obando_environmental_data")
           .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
+          .order("Date", { ascending: false, nullsFirst: false })
+          .order("Time", { ascending: false, nullsFirst: false })
           .order("id", { ascending: false })
           .limit(500);
 
@@ -161,8 +176,20 @@ export function useSupabaseHistory(
 
         console.log(`[History] Loaded ${data.length} readings from obando_environmental_data`);
 
-        // Normalize all raw records
-        const normalized = (data as SupabaseRawReading[]).map(normalizeReading);
+        // Normalize all raw records and discard rows missing usable timestamps.
+        const normalized = (data as SupabaseRawReading[])
+          .map(normalizeReading)
+          .filter((row): row is NormalizedReading => row !== null)
+          .sort((a, b) => {
+            const bTime = toMillis(b.timestamp);
+            const aTime = toMillis(a.timestamp);
+            if (bTime == null && aTime == null) return b.id - a.id;
+            if (bTime == null) return -1;
+            if (aTime == null) return 1;
+            const delta = bTime - aTime;
+            if (delta !== 0) return delta;
+            return b.id - a.id;
+          });
 
         // Group by timestamp (rounded to 1 minute buckets)
         const groups = new Map<string, NormalizedReading[]>();
@@ -182,7 +209,7 @@ export function useSupabaseHistory(
           if (snap) snapshots.push(snap);
         }
 
-        if (snapshots.length > 0) {
+        if (active && snapshots.length > 0) {
           setHistory(snapshots);
           console.log(`[History] Hydrated ${snapshots.length} snapshots from Supabase`);
         }
@@ -192,9 +219,31 @@ export function useSupabaseHistory(
       } catch (err) {
         clearTimeout(timeout);
         console.warn("[History] Failed to fetch from Supabase:", err);
+      } finally {
+        fetchingRef.current = false;
       }
     }
 
-    fetchHistory();
+    void fetchHistory();
+
+    const interval = window.setInterval(() => {
+      void fetchHistory();
+    }, REFRESH_INTERVAL_MS);
+
+    const onFocus = () => {
+      if (document.visibilityState === "visible") {
+        void fetchHistory();
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
   }, [setHistory]);
 }

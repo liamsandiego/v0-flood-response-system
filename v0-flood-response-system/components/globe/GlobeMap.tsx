@@ -62,6 +62,13 @@ const MAP_STYLES: Record<string, { label: string; url: string }> = {
   outdoors: { label: "Terrain", url: "mapbox://styles/mapbox/outdoors-v12" },
 };
 
+const MAP_CANVAS_STYLE = {
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+} as const;
+
 
 
 // Enrich sensor data with alert level and color
@@ -165,6 +172,11 @@ export default function GlobeMap({
   const isEdge = typeof navigator !== "undefined" && /Edg\//.test(navigator.userAgent);
 
   const mapStyle = layerConfig?.baseMap ?? "dark";
+  const resolvedMapStyle = useMemo(() => (MAP_STYLES[mapStyle] ?? MAP_STYLES.dark).url, [mapStyle]);
+  const projectionMode = useMemo(
+    () => ({ name: (isTouch ? "mercator" : "globe") as const }),
+    [isTouch]
+  );
 
   const showHimawari = layerConfig?.himawari.enabled ?? false;
 
@@ -347,7 +359,7 @@ export default function GlobeMap({
     };
     window.addEventListener("map:flyTo", handleFlyTo);
 
-    console.log("[GlobeMap] Map loaded, sensors:", sensorData.features.length, isEdge ? "(Edge mode)" : "");
+    console.log("[GlobeMap] Map loaded", isEdge ? "(Edge mode)" : "");
 
     // Cleanup event listener on unmount
     return () => {
@@ -356,7 +368,7 @@ export default function GlobeMap({
       canvas.removeEventListener("webglcontextlost", handleContextLost);
       canvas.removeEventListener("webglcontextrestored", handleContextRestored);
     };
-  }, [setupTerrainAndFog, sensorData.features.length, isTouch, isEdge]);
+  }, [setupTerrainAndFog, isTouch, isEdge]);
 
   // Re-apply terrain + fog after style swap (Mapbox removes custom sources)
   const prevStyleRef = useRef(mapStyle);
@@ -544,9 +556,9 @@ export default function GlobeMap({
         ref={mapRef}
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={INITIAL_VIEW}
-        style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
-        mapStyle={(MAP_STYLES[mapStyle] ?? MAP_STYLES.dark).url}
-        projection={{ name: isTouch ? "mercator" : "globe" }}
+        style={MAP_CANVAS_STYLE}
+        mapStyle={resolvedMapStyle}
+        projection={projectionMode}
         maxPitch={isTouch ? 60 : 85}
         reuseMaps
         trackResize={false}

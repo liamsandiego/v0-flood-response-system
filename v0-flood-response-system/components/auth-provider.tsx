@@ -47,11 +47,11 @@ interface AuthContextType {
 
 // ---------------------------------------------------------------------------
 // Timeouts — kept short so failures surface quickly instead of hanging.
-// getSession() reads from localStorage first so 8 s for init is generous.
-// Login is a single network call; 10 s is more than enough.
+// getSession()/session bootstrap can still hit network during token refresh.
+// Keep enough budget to avoid false logouts on slower tablet connections.
 // ---------------------------------------------------------------------------
-const AUTH_LOGIN_TIMEOUT_MS   = 10_000
-const AUTH_INIT_TIMEOUT_MS    = 8_000
+const AUTH_LOGIN_TIMEOUT_MS   = 20_000
+const AUTH_INIT_TIMEOUT_MS    = 20_000
 const AUTH_RESET_TIMEOUT_MS   = 10_000
 const AUTH_LOGOUT_TIMEOUT_MS  = 4_000
 
@@ -142,14 +142,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabaseAuth.auth.onAuthStateChange(
       async (event: string, session: { user: SupabaseUser } | null) => {
         try {
-          if (event === "SIGNED_IN" && session?.user) {
+          if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session?.user) {
             const profile = await fetchProfile(session.user)
             if (active) setUser(profile)
-          } else if (event === "SIGNED_OUT") {
+          } else if (event === "SIGNED_OUT" || (event === "INITIAL_SESSION" && !session)) {
             if (active) setUser(null)
           }
         } catch (err) {
           console.warn("[Auth] onAuthStateChange handler failed:", err)
+        } finally {
+          // INITIAL_SESSION is emitted once auth has finished bootstrap.
+          if (event === "INITIAL_SESSION" && active) {
+            setIsLoading(false)
+          }
         }
       }
     )

@@ -92,7 +92,9 @@ export default function LoginWithGlobe({ onLogin, onResetPassword }: LoginGlobeP
       {/* Globe background */}
       <div className="absolute inset-0 z-0">
         {showGlobe ? (
-          <GlobeMap />
+          <div className="login-map-canvas h-full w-full">
+            <GlobeMap />
+          </div>
         ) : (
           <div className="h-full w-full bg-[radial-gradient(circle_at_20%_20%,rgba(34,211,238,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(14,116,144,0.22),transparent_40%),linear-gradient(160deg,#020617_0%,#0f172a_52%,#111827_100%)]" />
         )}

@@ -9,6 +9,9 @@ export type AlertLevel = "normal" | "warning" | "critical"
 /** Measurement unit preference */
 export type MeasurementUnit = "metric" | "imperial"
 
+/** Temperature unit preference */
+export type TemperatureUnit = "celsius" | "fahrenheit"
+
 // ---------------------------------------------------------------------------
 // Sensor Identifiers & Roles
 // ---------------------------------------------------------------------------

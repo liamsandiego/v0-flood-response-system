@@ -2,8 +2,36 @@
 // RapidRelay – Measurement Unit Conversion
 // =============================================================================
 
-import type { MeasurementUnit, SensorId } from "./types"
+import type { MeasurementUnit, SensorId, TemperatureUnit } from "./types"
 import { METERS_TO_FEET, SENSOR_REGISTRY } from "./constants"
+
+export interface UnitPreferences {
+  distance: MeasurementUnit
+  temperature: TemperatureUnit
+}
+
+type UnitInput = MeasurementUnit | UnitPreferences
+
+function resolveStoredTemperatureUnit(): TemperatureUnit {
+  if (typeof window === "undefined") return "celsius"
+  try {
+    const saved = window.localStorage.getItem("rapidrelay_temperature_unit")
+    if (saved === "celsius" || saved === "fahrenheit") return saved
+  } catch {
+    // Ignore storage access issues and fall back to Celsius.
+  }
+  return "celsius"
+}
+
+function resolveUnitPreferences(targetUnit: UnitInput): UnitPreferences {
+  if (typeof targetUnit === "string") {
+    return {
+      distance: targetUnit,
+      temperature: resolveStoredTemperatureUnit(),
+    }
+  }
+  return targetUnit
+}
 
 /**
  * Converts a sensor value from metric to the target unit system.
@@ -15,18 +43,20 @@ import { METERS_TO_FEET, SENSOR_REGISTRY } from "./constants"
 export function convertValue(
   sensorId: SensorId,
   valueInMetric: number,
-  targetUnit: MeasurementUnit
+  targetUnit: UnitInput
 ): number {
-  if (targetUnit === "metric") return valueInMetric
+  const { distance, temperature } = resolveUnitPreferences(targetUnit)
+
+  // Temperature: Celsius or Fahrenheit
+  if (sensorId === "temperature_bme680") {
+    return temperature === "fahrenheit" ? (valueInMetric * 9) / 5 + 32 : valueInMetric
+  }
+
+  if (distance === "metric") return valueInMetric
 
   // Water level: meters to feet
   if (sensorId === "ultrasonic_water_level") {
     return valueInMetric * METERS_TO_FEET
-  }
-
-  // Temperature: Celsius to Fahrenheit
-  if (sensorId === "temperature_bme680") {
-    return (valueInMetric * 9) / 5 + 32
   }
 
   // Pressure: hPa to inHg (1 hPa = 0.02953 inHg)
@@ -41,9 +71,15 @@ export function convertValue(
 /**
  * Returns the display unit string for a sensor in the given unit system.
  */
-export function getDisplayUnit(sensorId: SensorId, unit: MeasurementUnit): string {
+export function getDisplayUnit(sensorId: SensorId, unit: UnitInput): string {
+  const { distance, temperature } = resolveUnitPreferences(unit)
   const meta = SENSOR_REGISTRY[sensorId]
-  return unit === "metric" ? meta.unit : meta.imperialUnit
+
+  if (sensorId === "temperature_bme680") {
+    return temperature === "fahrenheit" ? meta.imperialUnit : meta.unit
+  }
+
+  return distance === "metric" ? meta.unit : meta.imperialUnit
 }
 
 /**
@@ -53,7 +89,7 @@ export function getDisplayUnit(sensorId: SensorId, unit: MeasurementUnit): strin
 export function formatSensorValue(
   sensorId: SensorId,
   valueInMetric: number,
-  unit: MeasurementUnit
+  unit: UnitInput
 ): string {
   const converted = convertValue(sensorId, valueInMetric, unit)
   const displayUnit = getDisplayUnit(sensorId, unit)

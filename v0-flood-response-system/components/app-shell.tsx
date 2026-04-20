@@ -39,14 +39,14 @@ import { useAuth } from "@/components/auth-provider"
 import { useNotifications } from "@/hooks/use-notifications"
 import { useMapLayers } from "@/hooks/use-map-layers"
 import { useHimawari } from "@/hooks/use-himawari"
-import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime"
+import { useSupabaseRealtime } from "../hooks/useSupabaseRealtime"
 
 import { useSupabaseHistory } from "@/hooks/useSupabaseHistory"
 import { useFloodStore } from "@/stores/sensorStore"
 import { formatSensorValue } from "@/lib/conversion"
 import { isSensorOnline, getConsecutiveFailures } from "@/lib/sensor-validation"
 import { evaluateSnapshot, evaluateSensorHealth } from "@/lib/alert-engine"
-import { DEPLOYMENT, SENSOR_REGISTRY, SENSOR_POLL_INTERVAL_MS, ALL_SENSOR_IDS } from "@/lib/constants"
+import { DEPLOYMENT, SENSOR_REGISTRY, SENSOR_POLL_INTERVAL_MS } from "@/lib/constants"
 import { buildSnapshotFromStore } from "@/lib/sensor-utils"
 import type { SensorSnapshot, AlertLevel, SensorReading } from "@/lib/types"
 import type { UserRole } from "@/components/auth-provider"
@@ -152,7 +152,8 @@ export default function AppShell() {
   const sensorData = useFloodStore((s) => s.sensorData)
   const prediction = useFloodStore((s) => s.prediction)
   const sensorHistory = useFloodStore((s) => s.sensorHistory)
-  const unit = useFloodStore((s) => s.unit)
+  const distanceUnit = useFloodStore((s) => s.unit)
+  const temperatureUnit = useFloodStore((s) => s.temperatureUnit)
 
   const [activeTab, setActiveTab] = useState<TabId>("map")
   const [snapshot, setSnapshot] = useState<SensorSnapshot | null>(null)
@@ -321,6 +322,42 @@ export default function AppShell() {
       timestamp: now,
     }
   }, [snapshot])
+
+  const sensorConnectionSummary = useMemo(() => {
+    const now = Date.now()
+    const deviceKeys = new Set<string>()
+    const latestByDevice = new Map<string, number>()
+    const ONLINE_WINDOW_MS = 60_000
+
+    for (const feature of sensorData.features) {
+      const { sensor_id, name, latitude, longitude } = feature.properties
+      const latKey = Number.isFinite(latitude) ? latitude.toFixed(5) : ""
+      const lngKey = Number.isFinite(longitude) ? longitude.toFixed(5) : ""
+      const physicalKey = [name ?? "", latKey, lngKey].join("|")
+      const deviceKey = physicalKey === "||" ? (sensor_id || "unknown") : physicalKey
+      deviceKeys.add(deviceKey)
+
+      const timestampMs = Date.parse(feature.properties.timestamp)
+      if (!Number.isFinite(timestampMs)) continue
+
+      const prev = latestByDevice.get(deviceKey)
+      if (prev == null || timestampMs > prev) {
+        latestByDevice.set(deviceKey, timestampMs)
+      }
+    }
+
+    let online = 0
+    for (const key of deviceKeys.values()) {
+      const ts = latestByDevice.get(key)
+      if (ts == null) continue
+      if (now - ts <= ONLINE_WINDOW_MS) {
+        online += 1
+      }
+    }
+
+    return { online, total: deviceKeys.size }
+  }, [sensorData.features])
+
   const uptime = Math.floor((Date.now() - startTime.current) / 1000)
   const uptimeStr =
     uptime < 60 ? `${uptime}s` :
@@ -440,7 +477,12 @@ export default function AppShell() {
         <div className="flex items-center gap-2 mb-2">
           {getSensorIcon(sensorId)}
           <span className="text-2xl font-bold">
-            {hasLiveValue ? formatSensorValue(sensorId, reading.effectiveValue, unit) : "N/A"}
+            {hasLiveValue
+              ? formatSensorValue(sensorId, reading.effectiveValue, {
+                  distance: distanceUnit,
+                  temperature: temperatureUnit,
+                })
+              : "N/A"}
           </span>
         </div>
         <p className="text-[11px] text-white/40 mb-1">{meta.placement}</p>
@@ -748,7 +790,7 @@ export default function AppShell() {
               <span className="flex items-center gap-2 text-blue-300 shrink-0">
                 <Waves className="h-5 w-5" />
                 <span className="font-semibold">
-                  {unit === "metric"
+                  {distanceUnit === "metric"
                     ? (Number.isFinite(displaySnapshot.waterLevel.effectiveValue)
                         ? `${displaySnapshot.waterLevel.effectiveValue.toFixed(2)}m`
                         : "--")
@@ -834,7 +876,7 @@ export default function AppShell() {
               </div>
               <div className="flex items-center gap-1.5 text-white/60">
                 <ShieldAlert className="h-3 w-3" />
-                <span>Sensors: {ALL_SENSOR_IDS.filter((id) => isSensorOnline(id)).length}/{ALL_SENSOR_IDS.length} online</span>
+                <span>Sensors: {sensorConnectionSummary.online}/{sensorConnectionSummary.total} online</span>
               </div>
               <div className="flex items-center gap-1.5 text-white/60">
                 <Activity className="h-3 w-3" />

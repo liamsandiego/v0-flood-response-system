@@ -19,6 +19,23 @@ html, body {
   width: 100vw !important;
 }
 
+/* Login globe is decorative only; hide any map control chrome there. */
+.login-map-canvas {
+  pointer-events: none;
+}
+
+.login-map-canvas .mapboxgl-control-container,
+.login-map-canvas .mapboxgl-ctrl,
+.login-map-canvas .mapboxgl-ctrl-group {
+  display: none !important;
+}
+
+/* Prevent duplicate password visibility icons when using a custom toggle button. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
 /* Safe area padding for Android system nav bar + iOS notch */
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
