@@ -379,16 +379,29 @@ export default function GlobeMap({
     const map = mapRef.current?.getMap();
     if (!map || !mapLoaded) return;
 
-    // Suppress Source rendering while style is loading
+    // Hide Sources while the new style loads so stale layer IDs don't error.
     setStyleReady(false);
 
-    // Wait for style to fully load before re-adding terrain
     const handler = () => {
       setupTerrainAndFog(map);
       setStyleReady(true);
       map.off("style.load", handler);
     };
     map.on("style.load", handler);
+
+    // Guard: with reuseMaps=true Mapbox can keep the style loaded across
+    // React re-mounts, meaning "style.load" fires BEFORE we attach the
+    // listener and never fires again. Check isStyleLoaded() immediately so
+    // styleReady is never stuck at false.
+    if (map.isStyleLoaded()) {
+      handler();
+    }
+
+    // Clean up the listener if the effect re-runs before style.load fires
+    // (e.g. user switches style twice quickly).
+    return () => {
+      map.off("style.load", handler);
+    };
   }, [mapStyle, mapLoaded, setupTerrainAndFog]);
 
   // Critical mode fog
@@ -545,6 +558,36 @@ export default function GlobeMap({
             Add NEXT_PUBLIC_MAPBOX_TOKEN to .env.local
           </p>
         </div>
+      </div>
+    );
+  }
+
+  // ── Mobile / Touch: Skip Mapbox GL entirely ───────────────────────────────────────────
+  // Mapbox GL WebGL runs at full weight on mobile GPUs: 3D globe, DEM tiles,
+  // fog, raster overlays = ~10 fps on Edge mobile. Replace with a static
+  // Mapbox satellite image tile (plain HTTP, no WebGL, no GPU drain).
+  if (isTouch) {
+    const staticMapUrl = `https://api.mapbox.com/styles/v1/mapbox/${
+      (MAP_STYLES[layerConfig?.baseMap ?? "satellite"] ? layerConfig?.baseMap : "satellite")
+    }/static/120.9376,14.7072,13,0/1280x900@2x?access_token=${MAPBOX_TOKEN}`;
+    return (
+      <div className="absolute inset-0" style={{ background: "#0a0f1e" }}>
+        <img
+          src={staticMapUrl}
+          alt="Satellite map of Obando, Bulacan"
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ opacity: 0.82 }}
+          loading="eager"
+          decoding="async"
+        />
+        {/* Subtle dark vignette so UI panels read clearly over the image */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(ellipse at center, transparent 40%, rgba(5,10,30,0.55) 100%)",
+          }}
+        />
       </div>
     );
   }
