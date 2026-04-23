@@ -224,7 +224,6 @@ export default function AppShell() {
 
   // ── Build snapshot from real WebSocket data in Zustand store ──
   useEffect(() => {
-    let flashTimeout: ReturnType<typeof setTimeout> | null = null
     let mounted = true
 
     const tick = () => {
@@ -234,6 +233,7 @@ export default function AppShell() {
       const snap = buildSnapshotFromStore(sensorData, prediction, sensorHistory)
       if (!snap) return // No data yet — keep showing waiting state
 
+      // Batch snapshot + history into one update (React 18 auto-batches these)
       setSnapshot(snap)
       setHistory((prev) => {
         const last = prev[prev.length - 1]
@@ -242,12 +242,6 @@ export default function AppShell() {
         }
         return [...prev.slice(-143), snap]
       })
-
-      if (flashTimeout) clearTimeout(flashTimeout)
-      setFlashSensor("all")
-      flashTimeout = setTimeout(() => {
-        if (mounted) setFlashSensor(null)
-      }, 800)
 
       // Evaluate alerts and send push notifications only
       try {
@@ -266,11 +260,12 @@ export default function AppShell() {
     }
 
     tick()
-    const interval = setInterval(tick, SENSOR_POLL_INTERVAL_MS)
+    // 10 s is plenty — sensor data changes only on realtime INSERT, not every tick.
+    // 5 s was causing 4 re-renders per cycle across the whole component tree.
+    const interval = setInterval(tick, 10_000)
     return () => {
       mounted = false
       clearInterval(interval)
-      if (flashTimeout) clearTimeout(flashTimeout)
     }
   }, [sensorData, prediction, sensorHistory])
 

@@ -173,9 +173,10 @@ export default function GlobeMap({
 
   const mapStyle = layerConfig?.baseMap ?? "dark";
   const resolvedMapStyle = useMemo(() => (MAP_STYLES[mapStyle] ?? MAP_STYLES.dark).url, [mapStyle]);
+  // Edge: force mercator (flat) — globe sphere rendering tanks Edge GPU
   const projectionMode = useMemo(
-    () => ({ name: (isTouch ? "mercator" : "globe") as const }),
-    [isTouch]
+    () => ({ name: ((isTouch || isEdge) ? "mercator" : "globe") as const }),
+    [isTouch, isEdge]
   );
 
   const showHimawari = layerConfig?.himawari.enabled ?? false;
@@ -185,28 +186,34 @@ export default function GlobeMap({
 
   // ── Setup terrain + fog helper ──
   const setupTerrainAndFog = useCallback((map: mapboxgl.Map) => {
-    // Skip terrain on touch devices — DEM tile fetching + 3D mesh rendering
-    // is the biggest GPU drain and causes crashes on tablet browsers
-    if (!isTouch) {
+    // Skip terrain on touch devices AND Edge — DEM tile fetching + 3D mesh
+    // rendering is the primary GPU drain. Edge has additional shader compilation
+    // overhead that makes terrain unacceptably slow even on powerful desktops.
+    if (!isTouch && !isEdge) {
       try {
         if (!map.getSource("mapbox-dem")) {
           map.addSource("mapbox-dem", {
             type: "raster-dem",
             url: "mapbox://mapbox.mapbox-terrain-dem-v1",
             tileSize: 512,
-            maxzoom: isEdge ? 8 : 10, // Reduce on Edge to prevent glitches
+            maxzoom: 10,
           });
         }
         map.setTerrain({
           source: "mapbox-dem",
-          exaggeration: isEdge ? 1.0 : 1.5, // Lower on Edge for stability
+          exaggeration: 1.5,
         });
       } catch (e) {
         // Terrain may already exist after hot reload
       }
     }
 
-    // Simplified fog on touch devices to reduce GPU load
+    // No fog on Edge — atmospheric fog uses expensive GPU shaders.
+    // On touch devices use a minimal fog. On desktop use the full effect.
+    if (isEdge) {
+      // No fog at all on Edge
+      return;
+    }
     if (isTouch) {
       map.setFog({
         color: "rgb(10, 10, 25)",
@@ -404,8 +411,9 @@ export default function GlobeMap({
     };
   }, [mapStyle, mapLoaded, setupTerrainAndFog]);
 
-  // Critical mode fog
+  // Critical mode fog — skip on Edge (no fog mode)
   useEffect(() => {
+    if (isEdge) return; // Edge runs without fog
     const map = mapRef.current?.getMap();
     if (!map || !mapLoaded) return;
 
@@ -426,7 +434,7 @@ export default function GlobeMap({
         "star-intensity": 0.6,
       });
     }
-  }, [criticalMode, mapLoaded]);
+  }, [criticalMode, mapLoaded, isEdge]);
 
   // ── Map Overlays: Labels ──
   useEffect(() => {
@@ -602,13 +610,14 @@ export default function GlobeMap({
         style={MAP_CANVAS_STYLE}
         mapStyle={resolvedMapStyle}
         projection={projectionMode}
-        maxPitch={isTouch ? 60 : 85}
+        maxPitch={isTouch ? 60 : isEdge ? 60 : 85}
         reuseMaps
         trackResize={false}
         onLoad={onLoad}
         onClick={onClick}
         {...(!isTouch && !isEdge && { preserveDrawingBuffer: true })}
         {...((isTouch || isEdge) && { maxTileCacheSize: 50 })}
+        {...(isEdge && { fadeDuration: 0, antialias: false })}
         attributionControl={false}
       >
         {/* ── Himawari satellite overlay (Zoom Earth pattern) ──
