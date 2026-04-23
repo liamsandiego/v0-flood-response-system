@@ -3,15 +3,23 @@
  *
  * Simple, direct Supabase client initialization.
  * Uses NEXT_PUBLIC_ env vars which are available at build time and runtime.
+ *
+ * NOTE: No "use client" directive here — this module is a plain utility that
+ * is imported safely from both client components and server contexts.
+ * The createClient() calls run entirely in the browser when imported from a
+ * client component (auth-provider, useSupabaseRealtime, etc.).
  */
-
-"use client";
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+// Support all three naming conventions that Supabase / Vercel may use:
+//   NEXT_PUBLIC_SUPABASE_ANON_KEY            — standard / .env.local
+//   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY     — new Supabase dashboard key name
+//   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY — older generated name
 const supabaseAnonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
 
 // Debug logging for troubleshooting

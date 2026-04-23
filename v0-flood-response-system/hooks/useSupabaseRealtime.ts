@@ -76,6 +76,11 @@ export function useSupabaseRealtime() {
   const activeRef = useRef(false);
   const retryRef = useRef({ count: 0, timer: 0 as unknown as number });
   const maxRetriesLoggedRef = useRef(false);
+  // Dedup guard: prevents multiple rapid TIMED_OUT/CHANNEL_ERROR events from
+  // each independently scheduling a reconnect and creating a "storm" of 1-9
+  // rapid channel recreations. If the same error status fires within 1.5 s,
+  // the second event is a no-op.
+  const lastErrorStatusRef = useRef<{ status: string; at: number } | null>(null);
 
   const MAX_RETRIES = 6;
   const pollIntervalRef = useRef(0 as unknown as number | null);
@@ -171,7 +176,11 @@ export function useSupabaseRealtime() {
       if (retryRef.current.timer) return;
 
       const attempts = retryRef.current.count || 0;
-      const backoff = Math.min(30000, 1000 * Math.pow(2, attempts));
+      // Minimum 2 s on first retry (previously 1 s = 2^0 * 1000).
+      // This prevents the TIMED_OUT storm where the channel fires the error
+      // event, is torn down, recreated, and immediately times out again in
+      // under a second, cycling rapidly (visible as TIMED_OUT 1-9 in logs).
+      const backoff = Math.min(30000, 2000 * Math.pow(2, attempts));
       retryRef.current.count = attempts + 1;
 
       if (!pollIntervalRef.current) {
@@ -253,6 +262,16 @@ export function useSupabaseRealtime() {
           }
 
           if (status === "CHANNEL_ERROR" || status === "CLOSED" || status === "TIMED_OUT") {
+            // Dedup: ignore the same error status within 1.5 s to break the
+            // rapid-fire TIMED_OUT storm (channels fire multiple callbacks on
+            // a single disconnect event).
+            const now = Date.now();
+            const last = lastErrorStatusRef.current;
+            if (last && last.status === status && now - last.at < 1500) {
+              return;
+            }
+            lastErrorStatusRef.current = { status, at: now };
+
             const attempts = retryRef.current.count || 0;
 
             if (attempts >= 1) {

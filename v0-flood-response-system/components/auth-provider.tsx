@@ -46,12 +46,15 @@ interface AuthContextType {
 }
 
 // ---------------------------------------------------------------------------
-// Timeouts — kept short so failures surface quickly instead of hanging.
-// getSession()/session bootstrap can still hit network during token refresh.
-// Keep enough budget to avoid false logouts on slower tablet connections.
+// Timeouts
+// Auth_LOGIN: 30 s — must survive Supabase cold-start + refresh-token round-trip
+//             on Vercel prod (token refresh + fetchProfile in series = up to 12 s).
+// AUTH_RESET / AUTH_LOGOUT: kept short, they don't refresh tokens.
+// NOTE: AUTH_INIT_TIMEOUT_MS is intentionally removed. Session bootstrap is now
+// handled exclusively by the INITIAL_SESSION event from onAuthStateChange, so
+// there is no separate timeout-wrapped getSession() race anymore.
 // ---------------------------------------------------------------------------
-const AUTH_LOGIN_TIMEOUT_MS   = 20_000
-const AUTH_INIT_TIMEOUT_MS    = 20_000
+const AUTH_LOGIN_TIMEOUT_MS   = 30_000
 const AUTH_RESET_TIMEOUT_MS   = 10_000
 const AUTH_LOGOUT_TIMEOUT_MS  = 4_000
 
@@ -73,12 +76,24 @@ async function withTimeout<T>(
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+type ProfileRow = { username: string; full_name: string; role: string }
+
 async function fetchProfile(authUser: SupabaseUser): Promise<User> {
-  const { data } = await supabaseAuth
+  // Hard 5 s cap — if the profiles table is slow or RLS blocks the query,
+  // we must not hang. Fall back to email-derived viewer info instead.
+  const profilePromise = supabaseAuth
     .from("profiles")
     .select("username, full_name, role")
     .eq("id", authUser.id)
     .single()
+
+  let data: ProfileRow | null = null
+  try {
+    const result = await withTimeout(profilePromise, 5_000, "fetchProfile timed out")
+    data = result.data as ProfileRow | null
+  } catch (err) {
+    console.warn("[Auth] fetchProfile failed, using fallback:", err instanceof Error ? err.message : err)
+  }
 
   if (data) {
     return {
@@ -90,7 +105,7 @@ async function fetchProfile(authUser: SupabaseUser): Promise<User> {
     }
   }
 
-  // No profile row — fall back to email-derived info with viewer role
+  // No profile row or timed out — fall back to email-derived info with viewer role
   const emailName = (authUser.email ?? "user").split("@")[0]
   return {
     id: authUser.id,
@@ -108,37 +123,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true
 
-    // ── 1. Restore session on page load/refresh ──────────────────────────────
-    const initializeSession = async () => {
-      try {
-        // getSession() reads from localStorage synchronously in most cases,
-        // only hitting the network when the access token is expired and needs
-        // refreshing via the refresh token. Either way 8 s is plenty.
-        const { data: { session } } = await withTimeout(
-          supabaseAuth.auth.getSession(),
-          AUTH_INIT_TIMEOUT_MS,
-          "Session restore timed out"
-        )
-        if (!active) return
-        if (session?.user) {
-          const profile = await fetchProfile(session.user)
-          if (active) setUser(profile)
-        }
-      } catch (err) {
-        // Failed or timed out — just drop through and show the login screen.
-        console.warn("[Auth] Session restore failed:", err instanceof Error ? err.message : err)
-      } finally {
-        if (active) setIsLoading(false)
-      }
-    }
-
-    void initializeSession()
-
-    // ── 2. Single source of truth for all auth state changes ─────────────────
-    // login() only calls signInWithPassword and returns the result.
-    // This listener is the ONLY place that calls setUser, which eliminates
-    // the race condition that previously caused the dashboard to hang and
-    // require a page refresh to appear.
+    // ── Single source of truth for all auth state changes ────────────────────
+    //
+    // We intentionally do NOT call getSession() here in parallel.
+    //
+    // Supabase always emits INITIAL_SESSION on mount, which is the canonical
+    // signal for session hydration. Running getSession() simultaneously creates
+    // a race: both fire fetchProfile() and both call setUser()/setIsLoading(),
+    // causing the session to sometimes be dropped or the loading spinner to
+    // hang permanently. Removing the parallel getSession() call fixes this.
+    //
+    // On refresh:
+    //   - If token is still valid → INITIAL_SESSION fires with a session →
+    //     fetchProfile() resolves → setUser() called → isLoading = false.
+    //   - If token expired → Supabase internally refreshes via refresh token,
+    //     THEN fires INITIAL_SESSION (this is the network call that previously
+    //     caused the 20 s timeout to race against getSession).
+    //   - If no session → INITIAL_SESSION fires with null → setUser(null) →
+    //     isLoading = false → login screen shown immediately.
     const { data: { subscription } } = supabaseAuth.auth.onAuthStateChange(
       async (event: string, session: { user: SupabaseUser } | null) => {
         try {
@@ -148,10 +150,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } else if (event === "SIGNED_OUT" || (event === "INITIAL_SESSION" && !session)) {
             if (active) setUser(null)
           }
+          // TOKEN_REFRESHED: session is valid, keep existing user state (no-op).
+          // SIGNED_OUT caused by token expiry with no refresh token will be caught
+          // by the SIGNED_OUT branch above.
         } catch (err) {
           console.warn("[Auth] onAuthStateChange handler failed:", err)
+          // If fetchProfile failed during INITIAL_SESSION, still unblock the UI.
+          if (event === "INITIAL_SESSION" && active) setIsLoading(false)
         } finally {
-          // INITIAL_SESSION is emitted once auth has finished bootstrap.
+          // INITIAL_SESSION is emitted exactly once on mount — it marks the end
+          // of the Supabase auth bootstrap phase.
           if (event === "INITIAL_SESSION" && active) {
             setIsLoading(false)
           }

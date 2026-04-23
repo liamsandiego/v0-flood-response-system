@@ -91,33 +91,63 @@ function Section({
 // Unit Toggle Component
 // ---------------------------------------------------------------------------
 function UnitToggle() {
-  const unit = useFloodStore((s) => s.unit)
-  const setUnit = useFloodStore((s) => s.setUnit)
+  const distanceUnit = useFloodStore((s) => s.unit)
+  const setDistanceUnit = useFloodStore((s) => s.setUnit)
+  const temperatureUnit = useFloodStore((s) => s.temperatureUnit)
+  const setTemperatureUnit = useFloodStore((s) => s.setTemperatureUnit)
 
   return (
-    <div className="flex items-center gap-2">
-      <Label className="text-[10px] text-muted-foreground flex-1">Units</Label>
-      <div className="flex gap-1">
-        <button
-          onClick={() => setUnit("metric")}
-          className={`text-[10px] rounded border px-2 py-1 transition-colors ${
-            unit === "metric"
-              ? "bg-primary text-primary-foreground border-primary"
-              : "bg-muted/40 border-border hover:bg-muted"
-          }`}
-        >
-          Meters
-        </button>
-        <button
-          onClick={() => setUnit("imperial")}
-          className={`text-[10px] rounded border px-2 py-1 transition-colors ${
-            unit === "imperial"
-              ? "bg-primary text-primary-foreground border-primary"
-              : "bg-muted/40 border-border hover:bg-muted"
-          }`}
-        >
-          Feet
-        </button>
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Label className="text-[10px] text-muted-foreground flex-1">Distance</Label>
+        <div className="flex gap-1">
+          <button
+            onClick={() => setDistanceUnit("metric")}
+            className={`text-[10px] rounded border px-2 py-1 transition-colors ${
+              distanceUnit === "metric"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-muted/40 border-border hover:bg-muted"
+            }`}
+          >
+            Meters
+          </button>
+          <button
+            onClick={() => setDistanceUnit("imperial")}
+            className={`text-[10px] rounded border px-2 py-1 transition-colors ${
+              distanceUnit === "imperial"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-muted/40 border-border hover:bg-muted"
+            }`}
+          >
+            Feet
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Label className="text-[10px] text-muted-foreground flex-1">Temperature</Label>
+        <div className="flex gap-1">
+          <button
+            onClick={() => setTemperatureUnit("celsius")}
+            className={`text-[10px] rounded border px-2 py-1 transition-colors ${
+              temperatureUnit === "celsius"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-muted/40 border-border hover:bg-muted"
+            }`}
+          >
+            Celsius
+          </button>
+          <button
+            onClick={() => setTemperatureUnit("fahrenheit")}
+            className={`text-[10px] rounded border px-2 py-1 transition-colors ${
+              temperatureUnit === "fahrenheit"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-muted/40 border-border hover:bg-muted"
+            }`}
+          >
+            Fahrenheit
+          </button>
+        </div>
       </div>
     </div>
   )
