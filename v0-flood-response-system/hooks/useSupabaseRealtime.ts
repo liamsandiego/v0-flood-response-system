@@ -111,12 +111,49 @@ export function useSupabaseRealtime() {
     logTelemetry("realtime.connect", "attempting connection");
     setWsStatus("connecting");
 
-    // Guard: ensure environment variables are present (avoid unreliable runtime client introspection)
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    // Guard: ensure environment variables are present
+    const hasUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const hasKey = !!(
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+    );
+    if (!hasUrl || !hasKey) {
       console.warn("[Supabase Realtime] Supabase env vars missing, realtime disabled.");
       setWsStatus("disabled");
       return;
     }
+
+    // ── Immediate seed fetch ─────────────────────────────────────────────────
+    // The sensor store starts empty. Realtime only fires on NEW INSERTs, so if
+    // no new sensor data arrives while the page is open the map dot never shows.
+    // The polling fallback only starts after 6 retries (~2 min). This one-shot
+    // fetch seeds sensorData immediately on mount so the map marker appears
+    // within ~1 second regardless of realtime connection status.
+    void (async () => {
+      try {
+        const { data, error } = await supabasePublic
+          .from("obando_environmental_data")
+          .select('id, "Soil Moisture", "Temperature", "Humidity", "Pressure", "Final Distance", "Date", "Time", "Device"')
+          .order("id", { ascending: false })
+          .limit(10);
+
+        if (error || !data || data.length === 0) return;
+
+        const bySensor = new Map<string, SupabaseRawReading>();
+        for (const row of data as SupabaseRawReading[]) {
+          const sensorId = row["Device"] || "obando-main";
+          if (!bySensor.has(sensorId)) bySensor.set(sensorId, row);
+        }
+
+        if (!activeRef.current) return;
+        const features = Array.from(bySensor.values()).map(toFeature);
+        updateSensors({ type: "FeatureCollection", features });
+        console.log("[Supabase Realtime] Seeded", features.length, "sensor(s) on map from initial fetch");
+      } catch {
+        // Non-critical — realtime or polling will fill in shortly
+      }
+    })();
 
     function stopPollingFallback() {
       if (pollIntervalRef.current) {
