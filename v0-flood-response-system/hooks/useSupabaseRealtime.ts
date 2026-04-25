@@ -246,7 +246,7 @@ export function useSupabaseRealtime() {
           (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
             const row = payload.new as SupabaseRawReading;
             try {
-              logTelemetry("realtime.insert.received", undefined, { id: row.id, device: row.Device });
+              logTelemetry("realtime.insert.received", undefined, { id: row.id, device: row["Device"] });
             } catch {
               // no-op
             }

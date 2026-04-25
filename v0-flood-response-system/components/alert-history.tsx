@@ -132,13 +132,17 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
   const hasHydratedCacheRef = useRef(false)
   const channelRef = useRef<ReturnType<typeof supabasePublic.channel> | null>(null)
 
+  const hasDataRef = useRef(false)
+
   const fetchPredictions = useCallback(async (initial = false) => {
     if (fetchingRef.current) return
     fetchingRef.current = true
     const controller = new AbortController()
     const timeoutId = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
-    if (initial && predictions.length === 0) {
+    // Use a ref instead of predictions.length to avoid stale closure:
+    // useCallback([]) means predictions is always [] inside this callback.
+    if (initial && !hasDataRef.current) {
       setLoading(true)
     } else {
       setRefreshing(true)
@@ -162,6 +166,7 @@ export function AlertHistory({ userRole }: AlertHistoryProps) {
       } else if (data) {
         const incoming = data as FloodPrediction[]
         setPredictions((prev) => (initial ? sortPredictions(incoming) : mergePredictions(prev, incoming)))
+        hasDataRef.current = true
         setFetchError(null)
       }
     } catch (err) {

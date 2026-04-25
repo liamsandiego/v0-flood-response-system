@@ -37,25 +37,29 @@ interface NormalizedReading {
   distance_m: number | null;
 }
 
-// Convert raw Supabase row to normalized reading
-function normalizeReading(raw: SupabaseRawReading): NormalizedReading | null {
-  let timestamp: string | null = null;
+// Convert raw Supabase row to normalized reading.
+// Rows missing Date/Time are NOT discarded — they use a synthetic timestamp
+// based on their row ID so they still appear in history (sorted at the start).
+function normalizeReading(raw: SupabaseRawReading): NormalizedReading {
+  let timestamp: string
   if (raw["Date"] && raw["Time"]) {
     timestamp = `${raw["Date"]}T${raw["Time"]}`;
   } else if (raw["Date"]) {
     timestamp = `${raw["Date"]}T00:00:00`;
+  } else {
+    // No date info — synthesize a timestamp from row ID (keeps chronological order
+    // by insert sequence without throwing away the measurement values).
+    timestamp = new Date(raw.id * 1000).toISOString();
   }
-
-  if (!timestamp) return null;
 
   return {
     id: raw.id,
     timestamp,
-    soil: raw["Soil Moisture"],
-    temperature: raw["Temperature"],
-    humidity: raw["Humidity"],
-    pressure: raw["Pressure"],
-    distance_m: raw["Final Distance"],
+    soil: raw["Soil Moisture"] ?? 0,
+    temperature: raw["Temperature"] ?? 0,
+    humidity: raw["Humidity"] ?? 0,
+    pressure: raw["Pressure"] ?? 0,
+    distance_m: raw["Final Distance"] ?? null,
   };
 }
 
@@ -176,10 +180,9 @@ export function useSupabaseHistory(
 
         console.log(`[History] Loaded ${data.length} readings from obando_environmental_data`);
 
-        // Normalize all raw records and discard rows missing usable timestamps.
+        // Normalize all raw records — no rows are discarded now (normalizeReading always returns a value).
         const normalized = (data as SupabaseRawReading[])
           .map(normalizeReading)
-          .filter((row): row is NormalizedReading => row !== null)
           .sort((a, b) => {
             const bTime = toMillis(b.timestamp);
             const aTime = toMillis(a.timestamp);

@@ -22,13 +22,32 @@ const THRESHOLDS = {
   rainfall: { warning: 7.5, critical: 30 },
 } as const
 
-const SENSOR_STATUS_FRESHNESS_MS = 5 * 60 * 1000
+// 24 h window: sensor timestamps are stored as bare local-time strings
+// (e.g. "2024-04-25T14:30:00") which browsers may parse as UTC or local
+// depending on platform, making them appear 8+ hours stale on UTC+8 machines.
+// A 24-hour window is still correct for "online vs stale" classification
+// while being resilient to multi-hour timezone offsets.
+const SENSOR_STATUS_FRESHNESS_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Parse a timestamp string tolerantly.
+ * Bare datetime strings (no trailing Z or +offset) are treated as LOCAL time
+ * by appending nothing — we rely on the 24 h freshness window to absorb any
+ * offset skew rather than hard-coding UTC, because the sensor writes local time.
+ */
+function parseTimestampMs(timestamp: string | null | undefined): number | null {
+  if (!timestamp) return null
+  // If the string already has a timezone indicator, parse as-is.
+  // Otherwise append nothing (let Date parse as local time, consistent with
+  // how the sensor firmware writes timestamps).
+  const parsed = Date.parse(timestamp)
+  return Number.isFinite(parsed) ? parsed : null
+}
 
 function isFreshFeatureTimestamp(timestamp: string | null | undefined): boolean {
-  if (!timestamp) return false
-  const parsed = new Date(timestamp).getTime()
-  if (!Number.isFinite(parsed)) return false
-  return Date.now() - parsed <= SENSOR_STATUS_FRESHNESS_MS
+  const ms = parseTimestampMs(timestamp)
+  if (ms == null) return false
+  return Date.now() - ms <= SENSOR_STATUS_FRESHNESS_MS
 }
 
 /** Map backend alert levels to UI alert levels */
@@ -115,8 +134,8 @@ export function buildSnapshotFromStore(
     const p = f.properties
     if (!p.is_valid) continue
     if (!isFreshFeatureTimestamp(p.timestamp)) continue
-    const ts = new Date(p.timestamp).getTime()
-    if (Number.isFinite(ts)) {
+    const ts = parseTimestampMs(p.timestamp)
+    if (ts != null) {
       latestFreshTimestampMs = Math.max(latestFreshTimestampMs, ts)
     }
     if (typeof p.water_level === "number") {

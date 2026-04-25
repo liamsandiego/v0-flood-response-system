@@ -103,9 +103,14 @@ function formatTimestamp(value: string | null): string {
 let cachedRecords: EnvironmentalRecord[] = []
 let dataLoaded = false
 
-// Derive status from distance (water level) thresholds
+// Derive status from calculated water level (dike height minus sensor distance).
+// distance_m is the RAW ultrasonic distance from sensor to water surface.
+// Actual water level = DIKE_HEIGHT_M - distance_m (higher water = lower distance).
+const DIKE_HEIGHT_M = 4.038  // 13'3" — matches useSupabaseHistory and useSupabaseRealtime
+
 function deriveStatus(r: EnvironmentalRecord): "normal" | "warning" | "critical" {
-  const waterLevel = r.distance_m ?? 0
+  if (r.distance_m == null) return "normal"
+  const waterLevel = Math.max(0, DIKE_HEIGHT_M - r.distance_m)
   if (waterLevel >= 2.5) return "critical"
   if (waterLevel >= 1.5) return "warning"
   return "normal"
